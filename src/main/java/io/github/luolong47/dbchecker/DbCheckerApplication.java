@@ -48,6 +48,11 @@ public class DbCheckerApplication {
                 orders.forEach(order -> log.info("订单: {}", order));
                 
                 log.info("多数据源测试完成！");
+                
+                // 导出金额字段SUM比对结果
+                databaseService.exportMoneyFieldSumToExcel();
+                
+                log.info("END");
             } catch (Exception e) {
                 log.error("测试多数据源时发生错误", e);
             }
