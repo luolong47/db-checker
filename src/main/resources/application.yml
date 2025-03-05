@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: db-checker
+  # 主数据源配置
+  datasource:
+    primary:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:mem:primary;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+      username: sa
+      password: 
+    # 第二个数据源配置
+    secondary:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:mem:secondary;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+      username: sa
+      password: 
+    # 第三个数据源配置
+    tertiary:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:mem:tertiary;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+      username: sa
+      password: 
+
+# 日志配置
+logging:
+  level:
+    io.github.luolong47.dbchecker: INFO
+    org.springframework.jdbc.core: DEBUG
