@@ -570,6 +570,22 @@ public class DatabaseService {
                         moneyField
                     );
                     
+                    // 设置各数据源的记录数
+                    if (metaInfo.getDataSources().contains("第一数据源")) {
+                        Long count = metaInfo.getRecordCounts().getOrDefault("第一数据源", 0L);
+                        sumInfo.setCountValue(1, count);
+                    }
+                    
+                    if (metaInfo.getDataSources().contains("第二数据源")) {
+                        Long count = metaInfo.getRecordCounts().getOrDefault("第二数据源", 0L);
+                        sumInfo.setCountValue(2, count);
+                    }
+                    
+                    if (metaInfo.getDataSources().contains("第三数据源")) {
+                        Long count = metaInfo.getRecordCounts().getOrDefault("第三数据源", 0L);
+                        sumInfo.setCountValue(3, count);
+                    }
+                    
                     // 设置各数据源的SUM值
                     if (metaInfo.getDataSources().contains("第一数据源")) {
                         BigDecimal sum = datasourceSums.get("第一数据源").get(moneyField);
@@ -598,6 +614,23 @@ public class DatabaseService {
                     "",
                     ""
                 );
+                
+                // 设置各数据源的记录数
+                if (metaInfo.getDataSources().contains("第一数据源")) {
+                    Long count = metaInfo.getRecordCounts().getOrDefault("第一数据源", 0L);
+                    sumInfo.setCountValue(1, count);
+                }
+                
+                if (metaInfo.getDataSources().contains("第二数据源")) {
+                    Long count = metaInfo.getRecordCounts().getOrDefault("第二数据源", 0L);
+                    sumInfo.setCountValue(2, count);
+                }
+                
+                if (metaInfo.getDataSources().contains("第三数据源")) {
+                    Long count = metaInfo.getRecordCounts().getOrDefault("第三数据源", 0L);
+                    sumInfo.setCountValue(3, count);
+                }
+                
                 expandedSumInfoList.add(sumInfo);
             }
         }
@@ -682,7 +715,7 @@ public class DatabaseService {
             Row headerRow = sheet.createRow(0);
             
             // 固定列的标题
-            String[] fixedHeaders = {"表名", "SCHEMA", "所在库", "COUNT", "金额字段", "SUM字段", "SUM1", "SUM2", "SUM3"};
+            String[] fixedHeaders = {"表名", "SCHEMA", "所在库", "COUNT", "金额字段", "SUM字段", "COUNT1", "COUNT2", "COUNT3", "SUM1", "SUM2", "SUM3"};
             for (int i = 0; i < fixedHeaders.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(fixedHeaders[i]);
@@ -699,18 +732,31 @@ public class DatabaseService {
                 row.createCell(1).setCellValue(info.getSchema());
                 row.createCell(2).setCellValue(info.getDataSources());
                 row.createCell(3).setCellValue(info.getRecordCounts());
-                row.createCell(4).setCellValue(info.getMoneyFields());
-                row.createCell(5).setCellValue(info.getSumField());
+                // 设置COUNT值
+                for (int i = 1; i <= 3; i++) {
+                    Long countValue = info.getCountValue(i);
+                    if (countValue != null) {
+                        Cell cell = row.createCell(3 + i);
+                        cell.setCellValue(countValue);
+                    } else {
+                        row.createCell(3 + i).setCellValue("");
+                    }
+                }
+
+                row.createCell(7).setCellValue(info.getMoneyFields());
+                row.createCell(8).setCellValue(info.getSumField());
+                
+
                 
                 // 设置SUM值（使用金额格式）
                 for (int i = 1; i <= 3; i++) {
                     BigDecimal sumValue = info.getSumValue(i);
                     if (sumValue != null) {
-                        Cell cell = row.createCell(5 + i);
+                        Cell cell = row.createCell(8 + i);
                         cell.setCellValue(sumValue.doubleValue());
                         cell.setCellStyle(numberStyle);
                     } else {
-                        row.createCell(5 + i).setCellValue("");
+                        row.createCell(8 + i).setCellValue("");
                     }
                 }
             }

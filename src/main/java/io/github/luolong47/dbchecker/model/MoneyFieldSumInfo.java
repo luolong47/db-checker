@@ -38,6 +38,13 @@ public class MoneyFieldSumInfo {
     private String recordCounts;
     
     /**
+     * 各数据源中表的记录数量
+     * key: COUNT1, COUNT2, COUNT3 etc.
+     * value: 对应的记录数
+     */
+    private Map<String, Long> countValues = new HashMap<>();
+    
+    /**
      * 金额字段
      */
     @Alias("金额字段")
@@ -67,6 +74,26 @@ public class MoneyFieldSumInfo {
         this.recordCounts = recordCounts;
         this.moneyFields = moneyFields;
         this.sumField = sumField;
+    }
+    
+    /**
+     * 设置指定数据源的记录数量
+     * 
+     * @param sourceIndex 数据源索引（1开始）
+     * @param value 记录数量
+     */
+    public void setCountValue(int sourceIndex, Long value) {
+        countValues.put("COUNT" + sourceIndex, value);
+    }
+    
+    /**
+     * 获取指定数据源的记录数量
+     * 
+     * @param sourceIndex 数据源索引（1开始）
+     * @return 记录数量
+     */
+    public Long getCountValue(int sourceIndex) {
+        return countValues.getOrDefault("COUNT" + sourceIndex, null);
     }
     
     /**
