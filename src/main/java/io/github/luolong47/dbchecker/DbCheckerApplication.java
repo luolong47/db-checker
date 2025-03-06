@@ -35,23 +35,6 @@ public class DbCheckerApplication {
             log.info("开始测试多数据源...");
             
             try {
-                // 测试主数据源
-                log.info("===== 测试主数据源 =====");
-                List<Map<String, Object>> users = databaseService.queryUsersFromPrimary();
-                users.forEach(user -> log.info("用户: {}", user));
-                
-                // 测试第二个数据源
-                log.info("===== 测试第二个数据源 =====");
-                List<Map<String, Object>> products = databaseService.queryProductsFromSecondary();
-                products.forEach(product -> log.info("产品: {}", product));
-                
-                // 测试第三个数据源
-                log.info("===== 测试第三个数据源 =====");
-                List<Map<String, Object>> orders = databaseService.queryOrdersFromTertiary();
-                orders.forEach(order -> log.info("订单: {}", order));
-                
-                log.info("多数据源测试完成！");
-                
                 // 导出金额字段SUM比对结果
                 databaseService.exportMoneyFieldSumToExcel();
                 

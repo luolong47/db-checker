@@ -26,7 +26,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 
 /**
  * 数据库服务类，用于测试多数据源
@@ -77,36 +83,6 @@ public class DatabaseService {
         this.bscopyPv1JdbcTemplate = bscopyPv1JdbcTemplate;
         this.bscopyPv2JdbcTemplate = bscopyPv2JdbcTemplate;
         this.bscopyPv3JdbcTemplate = bscopyPv3JdbcTemplate;
-    }
-
-    /**
-     * 查询ora数据源中的用户数据
-     */
-    public List<Map<String, Object>> queryUsersFromPrimary() {
-        String sql = "SELECT * FROM users";
-        List<Map<String, Object>> result = oraJdbcTemplate.queryForList(sql);
-        log.info("从ora数据源查询到 {} 条用户数据", result.size());
-        return result;
-    }
-
-    /**
-     * 查询rlcms_base数据源中的产品数据
-     */
-    public List<Map<String, Object>> queryProductsFromSecondary() {
-        String sql = "SELECT * FROM products";
-        List<Map<String, Object>> result = rlcmsBaseJdbcTemplate.queryForList(sql);
-        log.info("从rlcms_base数据源查询到 {} 条产品数据", result.size());
-        return result;
-    }
-
-    /**
-     * 查询rlcms_pv1数据源中的订单数据
-     */
-    public List<Map<String, Object>> queryOrdersFromTertiary() {
-        String sql = "SELECT * FROM orders";
-        List<Map<String, Object>> result = rlcmsPv1JdbcTemplate.queryForList(sql);
-        log.info("从rlcms_pv1数据源查询到 {} 条订单数据", result.size());
-        return result;
     }
 
     /**
@@ -506,38 +482,75 @@ public class DatabaseService {
         // 创建一个Map存储表的基本信息
         Map<String, TableMetaInfo> tableInfoMap = new HashMap<>();
         
-        // 从三个数据源获取表信息并将其添加到tableInfoMap
-        List<TableInfo> primaryTables = getTablesInfoFromDataSource(oraJdbcTemplate, "ora");
-        log.info("从ora数据源获取到{}个表", primaryTables.size());
-        addTableInfoToMap(tableInfoMap, primaryTables, "ora", oraJdbcTemplate);
+        // 使用CompletableFuture并发获取表信息
+        CompletableFuture<List<TableInfo>> oraFuture = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(oraJdbcTemplate, "ora");
+            log.info("从ora数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> secondaryTables = getTablesInfoFromDataSource(rlcmsBaseJdbcTemplate, "rlcms_base");
-        log.info("从rlcms_base数据源获取到{}个表", secondaryTables.size());
-        addTableInfoToMap(tableInfoMap, secondaryTables, "rlcms_base", rlcmsBaseJdbcTemplate);
+        CompletableFuture<List<TableInfo>> rlcmsBaseFuture = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(rlcmsBaseJdbcTemplate, "rlcms_base");
+            log.info("从rlcms_base数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> tertiaryTables = getTablesInfoFromDataSource(rlcmsPv1JdbcTemplate, "rlcms_pv1");
-        log.info("从rlcms_pv1数据源获取到{}个表", tertiaryTables.size());
-        addTableInfoToMap(tableInfoMap, tertiaryTables, "rlcms_pv1", rlcmsPv1JdbcTemplate);
+        CompletableFuture<List<TableInfo>> rlcmsPv1Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(rlcmsPv1JdbcTemplate, "rlcms_pv1");
+            log.info("从rlcms_pv1数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> fourthTables = getTablesInfoFromDataSource(rlcmsPv2JdbcTemplate, "rlcms_pv2");
-        log.info("从rlcms_pv2数据源获取到{}个表", fourthTables.size());
-        addTableInfoToMap(tableInfoMap, fourthTables, "rlcms_pv2", rlcmsPv2JdbcTemplate);
+        CompletableFuture<List<TableInfo>> rlcmsPv2Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(rlcmsPv2JdbcTemplate, "rlcms_pv2");
+            log.info("从rlcms_pv2数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> fifthTables = getTablesInfoFromDataSource(rlcmsPv3JdbcTemplate, "rlcms_pv3");
-        log.info("从rlcms_pv3数据源获取到{}个表", fifthTables.size());
-        addTableInfoToMap(tableInfoMap, fifthTables, "rlcms_pv3", rlcmsPv3JdbcTemplate);
+        CompletableFuture<List<TableInfo>> rlcmsPv3Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(rlcmsPv3JdbcTemplate, "rlcms_pv3");
+            log.info("从rlcms_pv3数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> sixthTables = getTablesInfoFromDataSource(bscopyPv1JdbcTemplate, "bscopy_pv1");
-        log.info("从bscopy_pv1数据源获取到{}个表", sixthTables.size());
-        addTableInfoToMap(tableInfoMap, sixthTables, "bscopy_pv1", bscopyPv1JdbcTemplate);
+        CompletableFuture<List<TableInfo>> bscopyPv1Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(bscopyPv1JdbcTemplate, "bscopy_pv1");
+            log.info("从bscopy_pv1数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> seventhTables = getTablesInfoFromDataSource(bscopyPv2JdbcTemplate, "bscopy_pv2");
-        log.info("从bscopy_pv2数据源获取到{}个表", seventhTables.size());
-        addTableInfoToMap(tableInfoMap, seventhTables, "bscopy_pv2", bscopyPv2JdbcTemplate);
+        CompletableFuture<List<TableInfo>> bscopyPv2Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(bscopyPv2JdbcTemplate, "bscopy_pv2");
+            log.info("从bscopy_pv2数据源获取到{}个表", tables.size());
+            return tables;
+        });
         
-        List<TableInfo> eighthTables = getTablesInfoFromDataSource(bscopyPv3JdbcTemplate, "bscopy_pv3");
-        log.info("从bscopy_pv3数据源获取到{}个表", eighthTables.size());
-        addTableInfoToMap(tableInfoMap, eighthTables, "bscopy_pv3", bscopyPv3JdbcTemplate);
+        CompletableFuture<List<TableInfo>> bscopyPv3Future = CompletableFuture.supplyAsync(() -> {
+            List<TableInfo> tables = getTablesInfoFromDataSource(bscopyPv3JdbcTemplate, "bscopy_pv3");
+            log.info("从bscopy_pv3数据源获取到{}个表", tables.size());
+            return tables;
+        });
+        
+        // 等待所有Future完成
+        CompletableFuture.allOf(
+            oraFuture, rlcmsBaseFuture, rlcmsPv1Future, rlcmsPv2Future, rlcmsPv3Future,
+            bscopyPv1Future, bscopyPv2Future, bscopyPv3Future
+        ).join();
+        
+        // 将结果添加到tableInfoMap
+        try {
+            addTableInfoToMap(tableInfoMap, oraFuture.get(), "ora", oraJdbcTemplate);
+            addTableInfoToMap(tableInfoMap, rlcmsBaseFuture.get(), "rlcms_base", rlcmsBaseJdbcTemplate);
+            addTableInfoToMap(tableInfoMap, rlcmsPv1Future.get(), "rlcms_pv1", rlcmsPv1JdbcTemplate);
+            addTableInfoToMap(tableInfoMap, rlcmsPv2Future.get(), "rlcms_pv2", rlcmsPv2JdbcTemplate);
+            addTableInfoToMap(tableInfoMap, rlcmsPv3Future.get(), "rlcms_pv3", rlcmsPv3JdbcTemplate);
+            addTableInfoToMap(tableInfoMap, bscopyPv1Future.get(), "bscopy_pv1", bscopyPv1JdbcTemplate);
+            addTableInfoToMap(tableInfoMap, bscopyPv2Future.get(), "bscopy_pv2", bscopyPv2JdbcTemplate);
+            addTableInfoToMap(tableInfoMap, bscopyPv3Future.get(), "bscopy_pv3", bscopyPv3JdbcTemplate);
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("并发获取表信息时发生错误", e);
+            Thread.currentThread().interrupt();
+        }
         
         log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
         
@@ -558,6 +571,14 @@ public class DatabaseService {
         Collections.sort(sortedKeys);
         
         log.info("开始计算各表金额字段SUM值...");
+        
+        // 创建线程池用于并发计算SUM值
+        ExecutorService executor = Executors.newFixedThreadPool(
+            Math.min(Runtime.getRuntime().availableProcessors() * 2, 16)
+        );
+        
+        List<CompletableFuture<Void>> sumFutures = new ArrayList<>();
+        
         for (String key : sortedKeys) {
             String[] parts = key.split("#@#", 2);
             String tableName = parts[0];
@@ -570,203 +591,204 @@ public class DatabaseService {
                 Collections.sort(sortedMoneyFields);
                 
                 // 存储各数据源的批量SUM查询结果
-                Map<String, Map<String, BigDecimal>> datasourceSums = new HashMap<>();
+                ConcurrentHashMap<String, Map<String, BigDecimal>> datasourceSums = new ConcurrentHashMap<>();
                 
-                // 对三个数据源分别进行批量SUM查询
+                // 并发执行各数据源的SUM查询
+                List<CompletableFuture<Void>> tableSumFutures = new ArrayList<>();
+                
                 if (metaInfo.getDataSources().contains("ora")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(oraJdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("ora", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(oraJdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("ora", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("rlcms_base")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(rlcmsBaseJdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("rlcms_base", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(rlcmsBaseJdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("rlcms_base", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("rlcms_pv1")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv1JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("rlcms_pv1", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv1JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("rlcms_pv1", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("rlcms_pv2")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv2JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("rlcms_pv2", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv2JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("rlcms_pv2", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("rlcms_pv3")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv3JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("rlcms_pv3", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(rlcmsPv3JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("rlcms_pv3", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("bscopy_pv1")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv1JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("bscopy_pv1", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv1JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("bscopy_pv1", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("bscopy_pv2")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv2JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("bscopy_pv2", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv2JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("bscopy_pv2", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
                 if (metaInfo.getDataSources().contains("bscopy_pv3")) {
-                    Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv3JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
-                    datasourceSums.put("bscopy_pv3", sums);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        Map<String, BigDecimal> sums = calculateSumBatch(bscopyPv3JdbcTemplate, metaInfo.getSchema(), tableName, sortedMoneyFields);
+                        datasourceSums.put("bscopy_pv3", sums);
+                    }, executor);
+                    tableSumFutures.add(future);
                 }
                 
-                // 为每个金额字段创建MoneyFieldSumInfo并设置SUM值
-                for (String moneyField : sortedMoneyFields) {
-                    MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
-                        tableName,
-                        metaInfo.getSchema(),
-                        String.join(" | ", metaInfo.getDataSources()),
-                        metaInfo.getFormattedRecordCounts(),
-                        metaInfo.getFormattedMoneyFields(),
-                        moneyField
-                    );
-                    
-                    // 设置各数据源的记录数
-                    if (metaInfo.getDataSources().contains("ora")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("ora", 0L);
-                        sumInfo.setCountValue(1, count);
+                // 等待当前表的所有SUM查询完成后处理结果
+                CompletableFuture<Void> tableProcessFuture = CompletableFuture.allOf(
+                    tableSumFutures.toArray(new CompletableFuture[0])
+                ).thenAccept(v -> {
+                    // 为每个金额字段创建MoneyFieldSumInfo并设置SUM值
+                    for (String moneyField : sortedMoneyFields) {
+                        MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
+                            tableName,
+                            metaInfo.getSchema(),
+                            String.join(" | ", metaInfo.getDataSources()),
+                            metaInfo.getFormattedRecordCounts(),
+                            metaInfo.getFormattedMoneyFields(),
+                            moneyField
+                        );
+                        
+                        // 设置各数据源的记录数
+                        if (metaInfo.getDataSources().contains("ora")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("ora", 0L);
+                            sumInfo.setCountValue(1, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_base")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_base", 0L);
+                            sumInfo.setCountValue(2, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv1")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv1", 0L);
+                            sumInfo.setCountValue(3, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv2")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv2", 0L);
+                            sumInfo.setCountValue(4, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv3")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv3", 0L);
+                            sumInfo.setCountValue(5, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv1")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv1", 0L);
+                            sumInfo.setCountValue(6, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv2")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv2", 0L);
+                            sumInfo.setCountValue(7, count);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv3")) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv3", 0L);
+                            sumInfo.setCountValue(8, count);
+                        }
+                        
+                        // 设置各数据源的SUM值
+                        if (metaInfo.getDataSources().contains("ora")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("ora", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(1, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_base")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("rlcms_base", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(2, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv1")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("rlcms_pv1", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(3, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv2")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("rlcms_pv2", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(4, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("rlcms_pv3")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("rlcms_pv3", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(5, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv1")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("bscopy_pv1", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(6, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv2")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("bscopy_pv2", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(7, sum);
+                        }
+                        
+                        if (metaInfo.getDataSources().contains("bscopy_pv3")) {
+                            Map<String, BigDecimal> sums = datasourceSums.getOrDefault("bscopy_pv3", Collections.emptyMap());
+                            BigDecimal sum = sums.getOrDefault(moneyField, BigDecimal.ZERO);
+                            sumInfo.setSumValue(8, sum);
+                        }
+                        
+                        synchronized (expandedSumInfoList) {
+                            expandedSumInfoList.add(sumInfo);
+                        }
                     }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_base")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_base", 0L);
-                        sumInfo.setCountValue(2, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv1")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv1", 0L);
-                        sumInfo.setCountValue(3, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv2")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv2", 0L);
-                        sumInfo.setCountValue(4, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv3")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv3", 0L);
-                        sumInfo.setCountValue(5, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv1")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv1", 0L);
-                        sumInfo.setCountValue(6, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv2")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv2", 0L);
-                        sumInfo.setCountValue(7, count);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv3")) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv3", 0L);
-                        sumInfo.setCountValue(8, count);
-                    }
-                    
-                    // 设置各数据源的SUM值
-                    if (metaInfo.getDataSources().contains("ora")) {
-                        BigDecimal sum = datasourceSums.get("ora").get(moneyField);
-                        sumInfo.setSumValue(1, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_base")) {
-                        BigDecimal sum = datasourceSums.get("rlcms_base").get(moneyField);
-                        sumInfo.setSumValue(2, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv1")) {
-                        BigDecimal sum = datasourceSums.get("rlcms_pv1").get(moneyField);
-                        sumInfo.setSumValue(3, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv2")) {
-                        BigDecimal sum = datasourceSums.get("rlcms_pv2").get(moneyField);
-                        sumInfo.setSumValue(4, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("rlcms_pv3")) {
-                        BigDecimal sum = datasourceSums.get("rlcms_pv3").get(moneyField);
-                        sumInfo.setSumValue(5, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv1")) {
-                        BigDecimal sum = datasourceSums.get("bscopy_pv1").get(moneyField);
-                        sumInfo.setSumValue(6, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv2")) {
-                        BigDecimal sum = datasourceSums.get("bscopy_pv2").get(moneyField);
-                        sumInfo.setSumValue(7, sum);
-                    }
-                    
-                    if (metaInfo.getDataSources().contains("bscopy_pv3")) {
-                        BigDecimal sum = datasourceSums.get("bscopy_pv3").get(moneyField);
-                        sumInfo.setSumValue(8, sum);
-                    }
-                    
-                    expandedSumInfoList.add(sumInfo);
-                }
-            } else {
-                // 如果表没有金额字段，创建一个空的记录
-                MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
-                    tableName,
-                    metaInfo.getSchema(),
-                    String.join(" | ", metaInfo.getDataSources()),
-                    metaInfo.getFormattedRecordCounts(),
-                    "",
-                    ""
-                );
+                });
                 
-                // 设置各数据源的记录数
-                if (metaInfo.getDataSources().contains("ora")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("ora", 0L);
-                    sumInfo.setCountValue(1, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("rlcms_base")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_base", 0L);
-                    sumInfo.setCountValue(2, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("rlcms_pv1")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv1", 0L);
-                    sumInfo.setCountValue(3, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("rlcms_pv2")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv2", 0L);
-                    sumInfo.setCountValue(4, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("rlcms_pv3")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("rlcms_pv3", 0L);
-                    sumInfo.setCountValue(5, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("bscopy_pv1")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv1", 0L);
-                    sumInfo.setCountValue(6, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("bscopy_pv2")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv2", 0L);
-                    sumInfo.setCountValue(7, count);
-                }
-                
-                if (metaInfo.getDataSources().contains("bscopy_pv3")) {
-                    Long count = metaInfo.getRecordCounts().getOrDefault("bscopy_pv3", 0L);
-                    sumInfo.setCountValue(8, count);
-                }
-                
-                expandedSumInfoList.add(sumInfo);
+                sumFutures.add(tableProcessFuture);
             }
         }
         
-        log.info("金额字段SUM值计算完成，共{}条记录", expandedSumInfoList.size());
+        // 等待所有表的处理完成
+        CompletableFuture.allOf(sumFutures.toArray(new CompletableFuture[0])).join();
         
-        // 导出到Excel
+        // 关闭线程池
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        
         exportDynamicExcel(outputPath, expandedSumInfoList);
         
         log.info("金额字段SUM比对结果已成功导出到: {}", outputPath);
@@ -894,5 +916,301 @@ public class DatabaseService {
                 workbook.write(fileOut);
             }
         }
+    }
+
+    /**
+     * 对单个数据库进行并发查询，查询多个表
+     * @param jdbcTemplate 数据库连接
+     * @param dataSourceName 数据源名称
+     * @param tableNames 要查询的表名列表
+     * @param schema 模式名
+     * @param tableToSchemaMap 表名到schema的映射，当schema为null时使用
+     * @return 每个表的字段SUM结果
+     */
+    public Map<String, Map<String, BigDecimal>> concurrentQuerySingleDatabase(
+            JdbcTemplate jdbcTemplate, 
+            String dataSourceName, 
+            List<String> tableNames, 
+            String schema,
+            Map<String, String> tableToSchemaMap) {
+        
+        log.info("开始并发查询数据源[{}]的{}个表", dataSourceName, tableNames.size());
+        
+        // 创建结果Map
+        ConcurrentHashMap<String, Map<String, BigDecimal>> results = new ConcurrentHashMap<>();
+        
+        // 创建线程池
+        ExecutorService executor = Executors.newFixedThreadPool(
+            Math.min(Runtime.getRuntime().availableProcessors() * 2, 16)
+        );
+        
+        // 创建查询任务
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        
+        for (String tableName : tableNames) {
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                try {
+                    // 确定要使用的schema
+                    String tableSchema = schema;
+                    if (tableSchema == null && tableToSchemaMap != null) {
+                        tableSchema = tableToSchemaMap.get(tableName);
+                    }
+                    
+                    if (tableSchema == null) {
+                        log.warn("无法确定表[{}]的schema，跳过查询", tableName);
+                        return;
+                    }
+                    
+                    // 获取金额字段
+                    List<String> moneyFields = getMoneyFields(jdbcTemplate, tableSchema, tableName);
+                    if (!moneyFields.isEmpty()) {
+                        // 计算SUM值
+                        Map<String, BigDecimal> sums = calculateSumBatch(jdbcTemplate, tableSchema, tableName, moneyFields);
+                        results.put(tableName, sums);
+                        log.info("数据源[{}]表[{}.{}]查询完成，有{}个金额字段", dataSourceName, tableSchema, tableName, moneyFields.size());
+                    } else {
+                        log.info("数据源[{}]表[{}.{}]没有金额字段，跳过", dataSourceName, tableSchema, tableName);
+                    }
+                } catch (Exception e) {
+                    log.error("查询数据源[{}]表[{}]出错: {}", dataSourceName, tableName, e.getMessage());
+                }
+            }, executor);
+            
+            futures.add(future);
+        }
+        
+        // 等待所有任务完成
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        
+        // 关闭线程池
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        
+        log.info("数据源[{}]的{}个表查询完成", dataSourceName, results.size());
+        return results;
+    }
+
+    /**
+     * 对单个数据库进行并发查询，查询多个表
+     * @param jdbcTemplate 数据库连接
+     * @param dataSourceName 数据源名称
+     * @param tableNames 要查询的表名列表
+     * @param schema 模式名
+     * @return 每个表的字段SUM结果
+     */
+    public Map<String, Map<String, BigDecimal>> concurrentQuerySingleDatabase(
+            JdbcTemplate jdbcTemplate, 
+            String dataSourceName, 
+            List<String> tableNames, 
+            String schema) {
+        return concurrentQuerySingleDatabase(jdbcTemplate, dataSourceName, tableNames, schema, null);
+    }
+
+    /**
+     * 并发查询多个数据库
+     * @param datasources 数据源Map，key为数据源名称，value为JdbcTemplate
+     * @param tableNames 要查询的表名列表
+     * @param schema 模式名
+     * @param tableToSchemaMap 表名到schema的映射，当schema为null时使用
+     * @return 每个数据源的查询结果
+     */
+    public Map<String, Map<String, Map<String, BigDecimal>>> concurrentQueryMultipleDatabases(
+            Map<String, JdbcTemplate> datasources, 
+            List<String> tableNames, 
+            String schema,
+            Map<String, String> tableToSchemaMap) {
+        
+        log.info("开始并发查询{}个数据源的{}个表", datasources.size(), tableNames.size());
+        
+        // 创建结果Map
+        ConcurrentHashMap<String, Map<String, Map<String, BigDecimal>>> results = new ConcurrentHashMap<>();
+        
+        // 创建查询任务
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        
+        for (Map.Entry<String, JdbcTemplate> entry : datasources.entrySet()) {
+            String dataSourceName = entry.getKey();
+            JdbcTemplate jdbcTemplate = entry.getValue();
+            
+            CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> {
+                Map<String, Map<String, BigDecimal>> dbResult = concurrentQuerySingleDatabase(
+                    jdbcTemplate, dataSourceName, tableNames, schema, tableToSchemaMap);
+                results.put(dataSourceName, dbResult);
+                return null;
+            });
+            
+            futures.add(future);
+        }
+        
+        // 等待所有任务完成
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        
+        log.info("所有{}个数据源的查询完成", datasources.size());
+        return results;
+    }
+
+    /**
+     * 并发查询多个数据库
+     * @param datasources 数据源Map，key为数据源名称，value为JdbcTemplate
+     * @param tableNames 要查询的表名列表
+     * @param schema 模式名
+     * @return 每个数据源的查询结果
+     */
+    public Map<String, Map<String, Map<String, BigDecimal>>> concurrentQueryMultipleDatabases(
+            Map<String, JdbcTemplate> datasources, 
+            List<String> tableNames, 
+            String schema) {
+        return concurrentQueryMultipleDatabases(datasources, tableNames, schema, null);
+    }
+
+    /**
+     * 导出多个数据库并发查询结果到Excel
+     * 这是一个示例方法，展示如何使用并发查询功能
+     */
+    public void exportConcurrentQueryResultToExcel() throws IOException {
+        log.info("开始并发查询导出...");
+        
+        // 准备数据源
+        Map<String, JdbcTemplate> datasources = new HashMap<>();
+        datasources.put("ora", oraJdbcTemplate);
+        datasources.put("rlcms_base", rlcmsBaseJdbcTemplate);
+        datasources.put("rlcms_pv1", rlcmsPv1JdbcTemplate);
+        datasources.put("rlcms_pv2", rlcmsPv2JdbcTemplate);
+        datasources.put("rlcms_pv3", rlcmsPv3JdbcTemplate);
+        datasources.put("bscopy_pv1", bscopyPv1JdbcTemplate);
+        datasources.put("bscopy_pv2", bscopyPv2JdbcTemplate);
+        datasources.put("bscopy_pv3", bscopyPv3JdbcTemplate);
+        
+        // 第一步：并发获取所有数据源的表信息
+        log.info("开始收集表信息...");
+        Map<String, List<TableInfo>> allTableInfo = new ConcurrentHashMap<>();
+        
+        List<CompletableFuture<Void>> tableFutures = new ArrayList<>();
+        
+        for (Map.Entry<String, JdbcTemplate> entry : datasources.entrySet()) {
+            String dataSourceName = entry.getKey();
+            JdbcTemplate jdbcTemplate = entry.getValue();
+            
+            CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> {
+                List<TableInfo> tables = getTablesInfoFromDataSource(jdbcTemplate, dataSourceName);
+                log.info("从{}数据源获取到{}个表", dataSourceName, tables.size());
+                allTableInfo.put(dataSourceName, tables);
+                return null;
+            });
+            
+            tableFutures.add(future);
+        }
+        
+        // 等待所有获取表信息的任务完成
+        CompletableFuture.allOf(tableFutures.toArray(new CompletableFuture[0])).join();
+        
+        // 汇总所有表信息
+        Map<String, TableMetaInfo> tableInfoMap = new HashMap<>();
+        for (Map.Entry<String, List<TableInfo>> entry : allTableInfo.entrySet()) {
+            String dataSourceName = entry.getKey();
+            List<TableInfo> tables = entry.getValue();
+            JdbcTemplate jdbcTemplate = datasources.get(dataSourceName);
+            
+            addTableInfoToMap(tableInfoMap, tables, dataSourceName, jdbcTemplate);
+        }
+        
+        log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
+        
+        // 第二步：提取所有需要查询的表名
+        List<String> allTablesToQuery = new ArrayList<>();
+        Map<String, String> tableToSchemaMap = new HashMap<>(); // 保存表对应的schema
+        
+        for (Map.Entry<String, TableMetaInfo> entry : tableInfoMap.entrySet()) {
+            String[] parts = entry.getKey().split("#@#", 2);
+            String tableName = parts[0];
+            TableMetaInfo metaInfo = entry.getValue();
+            
+            // 只查询有金额字段的表
+            if (!metaInfo.getMoneyFields().isEmpty()) {
+                if (!allTablesToQuery.contains(tableName)) {
+                    allTablesToQuery.add(tableName);
+                    tableToSchemaMap.put(tableName, metaInfo.getSchema());
+                }
+            }
+        }
+        
+        log.info("需要查询的表总数: {}", allTablesToQuery.size());
+        
+        // 第三步：并发查询所有数据库的所有表，使用tableToSchemaMap来确定每个表的schema
+        Map<String, Map<String, Map<String, BigDecimal>>> queryResults = 
+            concurrentQueryMultipleDatabases(datasources, allTablesToQuery, null, tableToSchemaMap);
+        
+        // 第四步：整理数据并导出到Excel
+        // 创建结果目录
+        File directory = new File(exportDirectory);
+        if (!directory.exists()) {
+            directory.mkdirs();
+        }
+        
+        String outputPath = exportDirectory + File.separator + "并发查询SUM比对-" 
+                + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()) + ".xlsx";
+        
+        // 将查询结果转换为导出格式
+        List<MoneyFieldSumInfo> expandedSumInfoList = new ArrayList<>();
+        
+        for (String tableName : allTablesToQuery) {
+            String schema = tableToSchemaMap.get(tableName);
+            TableMetaInfo metaInfo = tableInfoMap.get(tableName + "#@#" + schema);
+            
+            if (metaInfo == null || metaInfo.getMoneyFields().isEmpty()) {
+                continue;
+            }
+            
+            // 对表的金额字段按字母排序
+            List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
+            Collections.sort(sortedMoneyFields);
+            
+            // 为每个金额字段创建一条记录
+            for (String moneyField : sortedMoneyFields) {
+                MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
+                    tableName,
+                    schema,
+                    String.join(" | ", metaInfo.getDataSources()),
+                    metaInfo.getFormattedRecordCounts(),
+                    metaInfo.getFormattedMoneyFields(),
+                    moneyField
+                );
+                
+                // 设置各数据源的记录数和SUM值
+                for (int i = 0; i < datasources.size(); i++) {
+                    String dataSourceName = (String) datasources.keySet().toArray()[i];
+                    
+                    // 设置记录数
+                    if (metaInfo.getDataSources().contains(dataSourceName)) {
+                        Long count = metaInfo.getRecordCounts().getOrDefault(dataSourceName, 0L);
+                        sumInfo.setCountValue(i+1, count);
+                        
+                        // 设置SUM值
+                        Map<String, Map<String, BigDecimal>> dataSourceResults = queryResults.get(dataSourceName);
+                        if (dataSourceResults != null) {
+                            Map<String, BigDecimal> tableSums = dataSourceResults.get(tableName);
+                            if (tableSums != null) {
+                                BigDecimal sum = tableSums.getOrDefault(moneyField, BigDecimal.ZERO);
+                                sumInfo.setSumValue(i+1, sum);
+                            }
+                        }
+                    }
+                }
+                
+                expandedSumInfoList.add(sumInfo);
+            }
+        }
+        
+        // 导出到Excel
+        exportDynamicExcel(outputPath, expandedSumInfoList);
+        
+        log.info("并发查询SUM比对结果已成功导出到: {}", outputPath);
     }
 } 
