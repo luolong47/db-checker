@@ -3,6 +3,36 @@ spring:
     name: db-checker
   # 主数据源配置
   datasource:
+    # 数据库初始化脚本配置
+    init:
+      # 是否启用初始化
+      enabled: true
+      # 各数据源脚本配置
+      scripts:
+        ora:
+          - db/schema-ora.sql
+          - db/data-ora.sql
+        rlcms-base:
+          - db/schema-rlcms_base.sql
+          - db/data-rlcms_base.sql
+        rlcms-pv1:
+          - db/schema-rlcms_pv1.sql
+          - db/data-rlcms_pv1.sql
+        rlcms-pv2:
+          - db/schema-rlcms_pv2.sql
+          - db/data-rlcms_pv2.sql
+        rlcms-pv3:
+          - db/schema-rlcms_pv3.sql
+          - db/data-rlcms_pv3.sql
+        bscopy-pv1:
+          - db/schema-bscopy_pv1.sql
+          - db/data-bscopy_pv1.sql
+        bscopy-pv2:
+          - db/schema-bscopy_pv2.sql
+          - db/data-bscopy_pv2.sql
+        bscopy-pv3:
+          - db/schema-bscopy_pv3.sql
+          - db/data-bscopy_pv3.sql
     hikari:
       # 连接超时时间（毫秒）
       connection-timeout: 60000
@@ -20,21 +50,52 @@ spring:
       auto-commit: true
       # 验证超时时间（秒）
       validation-timeout: 5000
-    primary:
+    # ora数据源配置（原primary）
+    ora:
       driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/primary;AUTO_SERVER=TRUE;
+      jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
       username: sa
       password: 
-    # 第二个数据源配置
-    secondary:
+    # rlcms_base数据源配置（原secondary）
+    rlcms-base:
       driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/secondary;AUTO_SERVER=TRUE;
+      jdbc-url: jdbc:h2:file:./data/rlcms_base;AUTO_SERVER=TRUE;
       username: sa
       password: 
-    # 第三个数据源配置
-    tertiary:
+    # rlcms_pv1数据源配置（原tertiary）
+    rlcms-pv1:
       driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/tertiary;AUTO_SERVER=TRUE;
+      jdbc-url: jdbc:h2:file:./data/rlcms_pv1;AUTO_SERVER=TRUE;
+      username: sa
+      password: 
+    # rlcms_pv2数据源配置（原fourth）
+    rlcms-pv2:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/rlcms_pv2;AUTO_SERVER=TRUE;
+      username: sa
+      password: 
+    # rlcms_pv3数据源配置（原fifth）
+    rlcms-pv3:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/rlcms_pv3;AUTO_SERVER=TRUE;
+      username: sa
+      password: 
+    # bscopy_pv1数据源配置（原sixth）
+    bscopy-pv1:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/bscopy_pv1;AUTO_SERVER=TRUE;
+      username: sa
+      password: 
+    # bscopy_pv2数据源配置（原seventh）
+    bscopy-pv2:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
+      username: sa
+      password: 
+    # bscopy_pv3数据源配置（原eighth）
+    bscopy-pv3:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
       username: sa
       password: 
 

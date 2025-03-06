@@ -1,11 +1,13 @@
 package io.github.luolong47.dbchecker;
 
+import io.github.luolong47.dbchecker.config.DatabaseInitScriptsProperties;
 import io.github.luolong47.dbchecker.service.DatabaseService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
@@ -13,6 +15,7 @@ import java.util.Map;
 
 @Slf4j
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+@EnableConfigurationProperties(DatabaseInitScriptsProperties.class)
 public class DbCheckerApplication {
 
     public static void main(String[] args) {
