@@ -114,7 +114,7 @@ public class DatabaseService {
             log.info("从{}获取到{}个非系统表", dataSourceName, tableInfoList.size());
             return tableInfoList;
         } catch (SQLException e) {
-            log.error("获取{}的表信息时出错: {}", dataSourceName, e.getMessage());
+            log.error("获取{}的表信息时出错: {}", dataSourceName, e.getMessage(),e);
             return Collections.emptyList();
         }
     }
@@ -291,7 +291,7 @@ public class DatabaseService {
             Long count = jdbcTemplate.queryForObject(sql, Long.class);
             return count != null ? count : 0L;
         } catch (Exception e) {
-            log.warn("查询表[{}]记录数时出错: {}", tableName, e.getMessage());
+            log.warn("查询表[{}]记录数时出错: {}", tableName, e.getMessage(),e);
             return 0L;
         }
     }
@@ -311,7 +311,7 @@ public class DatabaseService {
             log.info("表[{}]在{}中有{}条记录", tableName, dataSourceName, count);
             return count;
         } catch (Exception e) {
-            log.error("获取表[{}]在{}中的记录数时出错: {}", tableName, dataSourceName, e.getMessage());
+            log.error("获取表[{}]在{}中的记录数时出错: {}", tableName, dataSourceName, e.getMessage(),e);
             return 0L;
         }
     }
@@ -349,7 +349,7 @@ public class DatabaseService {
                             moneyFields.size(), String.join(", ", moneyFields));
                     }
                 } catch (Exception e) {
-                    log.warn("获取表 {}.{} 的金额字段时出错: {}", table.getSchema(), table.getTableName(), e.getMessage());
+                    log.warn("获取表 {}.{} 的金额字段时出错: {}", table.getSchema(), table.getTableName(), e.getMessage(),e);
                 }
             }
         }
@@ -454,7 +454,7 @@ public class DatabaseService {
             
             return moneyFields;
         } catch (SQLException e) {
-            log.warn("获取表[{}]的金额字段时出错: {}", tableName, e.getMessage());
+            log.warn("获取表[{}]的金额字段时出错: {}", tableName, e.getMessage(),e);
             return Collections.emptyList();
         }
     }
@@ -833,7 +833,7 @@ public class DatabaseService {
                 log.debug("表 {}.{} 字段 {} 的SUM值为: {}", schema, tableName, fieldName, decimalValue);
             }
         } catch (Exception e) {
-            log.warn("批量计算表 {}.{} 的SUM值时出错: {}", schema, tableName, e.getMessage());
+            log.warn("批量计算表 {}.{} 的SUM值时出错: {}", schema, tableName, e.getMessage(),e);
         }
         return results;
     }
@@ -972,7 +972,7 @@ public class DatabaseService {
                         log.info("数据源[{}]表[{}.{}]没有金额字段，跳过", dataSourceName, tableSchema, tableName);
                     }
                 } catch (Exception e) {
-                    log.error("查询数据源[{}]表[{}]出错: {}", dataSourceName, tableName, e.getMessage());
+                    log.error("查询数据源[{}]表[{}]出错: {}", dataSourceName, tableName, e.getMessage(),e);
                 }
             }, executor);
             

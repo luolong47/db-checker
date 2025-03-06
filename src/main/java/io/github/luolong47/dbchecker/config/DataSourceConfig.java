@@ -1,13 +1,13 @@
 package io.github.luolong47.dbchecker.config;
 
+import com.alibaba.druid.pool.DruidDataSource;
+import com.alibaba.druid.spring.boot.autoconfigure.DruidDataSourceBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.core.env.Environment;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.DataSourceInitializer;
@@ -15,7 +15,6 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -25,10 +24,16 @@ import java.util.List;
 public class DataSourceConfig {
 
     @Autowired
-    private Environment env;
-
-    @Autowired
     private DatabaseInitScriptsProperties databaseInitScriptsProperties;
+    
+    /**
+     * 全局Druid数据源配置
+     */
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource.druid")
+    public DruidDataSource globalDruidProperties() {
+        return new DruidDataSource();
+    }
 
     /**
      * ora数据源（主数据源）
@@ -37,7 +42,10 @@ public class DataSourceConfig {
     @Bean(name = "oraDataSource")
     @ConfigurationProperties(prefix = "spring.datasource.ora")
     public DataSource oraDataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -46,7 +54,10 @@ public class DataSourceConfig {
     @Bean(name = "rlcmsBaseDataSource")
     @ConfigurationProperties(prefix = "spring.datasource.rlcms-base")
     public DataSource rlcmsBaseDataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -55,7 +66,10 @@ public class DataSourceConfig {
     @Bean(name = "rlcmsPv1DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.rlcms-pv1")
     public DataSource rlcmsPv1DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -64,7 +78,10 @@ public class DataSourceConfig {
     @Bean(name = "rlcmsPv2DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.rlcms-pv2")
     public DataSource rlcmsPv2DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -73,7 +90,10 @@ public class DataSourceConfig {
     @Bean(name = "rlcmsPv3DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.rlcms-pv3")
     public DataSource rlcmsPv3DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -82,7 +102,10 @@ public class DataSourceConfig {
     @Bean(name = "bscopyPv1DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.bscopy-pv1")
     public DataSource bscopyPv1DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -91,7 +114,10 @@ public class DataSourceConfig {
     @Bean(name = "bscopyPv2DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.bscopy-pv2")
     public DataSource bscopyPv2DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
     }
 
     /**
@@ -100,7 +126,78 @@ public class DataSourceConfig {
     @Bean(name = "bscopyPv3DataSource")
     @ConfigurationProperties(prefix = "spring.datasource.bscopy-pv3")
     public DataSource bscopyPv3DataSource() {
-        return DataSourceBuilder.create().build();
+        // 创建数据源并应用全局配置
+        DruidDataSource dataSource = DruidDataSourceBuilder.create().build();
+        applyGlobalDruidConfig(dataSource);
+        return dataSource;
+    }
+    
+    /**
+     * 将全局Druid配置应用到数据源
+     * @param dataSource 数据源
+     */
+    private void applyGlobalDruidConfig(DruidDataSource dataSource) {
+        DruidDataSource globalConfig = globalDruidProperties();
+        
+        // 如果数据源没有配置validationQuery，使用全局配置的
+        if (dataSource.getValidationQuery() == null) {
+            dataSource.setValidationQuery(globalConfig.getValidationQuery());
+        }
+        
+        // 如果数据源没有配置initialSize，使用全局配置的
+        if (dataSource.getInitialSize() == 0) {
+            dataSource.setInitialSize(globalConfig.getInitialSize());
+        }
+        
+        // 如果数据源没有配置minIdle，使用全局配置的
+        if (dataSource.getMinIdle() == 0) {
+            dataSource.setMinIdle(globalConfig.getMinIdle());
+        }
+        
+        // 如果数据源没有配置maxActive，使用全局配置的
+        if (dataSource.getMaxActive() == 8) {
+            dataSource.setMaxActive(globalConfig.getMaxActive());
+        }
+        
+        // 如果数据源没有配置maxWait，使用全局配置的
+        if (dataSource.getMaxWait() == -1) {
+            dataSource.setMaxWait(globalConfig.getMaxWait());
+        }
+        
+        // 如果数据源没有配置testWhileIdle，使用全局配置的
+        if (!dataSource.isTestWhileIdle()) {
+            dataSource.setTestWhileIdle(globalConfig.isTestWhileIdle());
+        }
+        
+        // 如果数据源没有配置testOnBorrow，使用全局配置的
+        if (!dataSource.isTestOnBorrow()) {
+            dataSource.setTestOnBorrow(globalConfig.isTestOnBorrow());
+        }
+        
+        // 如果数据源没有配置testOnReturn，使用全局配置的
+        if (!dataSource.isTestOnReturn()) {
+            dataSource.setTestOnReturn(globalConfig.isTestOnReturn());
+        }
+        
+        // 如果数据源没有配置poolPreparedStatements，使用全局配置的
+        if (!dataSource.isPoolPreparedStatements()) {
+            dataSource.setPoolPreparedStatements(globalConfig.isPoolPreparedStatements());
+        }
+        
+        // 如果数据源没有配置maxPoolPreparedStatementPerConnectionSize，使用全局配置的
+        if (dataSource.getMaxPoolPreparedStatementPerConnectionSize() == -1) {
+            dataSource.setMaxPoolPreparedStatementPerConnectionSize(globalConfig.getMaxPoolPreparedStatementPerConnectionSize());
+        }
+        
+        // 如果数据源没有配置timeBetweenEvictionRunsMillis，使用全局配置的
+        if (dataSource.getTimeBetweenEvictionRunsMillis() == 60000) {
+            dataSource.setTimeBetweenEvictionRunsMillis(globalConfig.getTimeBetweenEvictionRunsMillis());
+        }
+        
+        // 如果数据源没有配置minEvictableIdleTimeMillis，使用全局配置的
+        if (dataSource.getMinEvictableIdleTimeMillis() == 1800000) {
+            dataSource.setMinEvictableIdleTimeMillis(globalConfig.getMinEvictableIdleTimeMillis());
+        }
     }
 
     /**
