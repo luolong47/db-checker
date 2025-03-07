@@ -32,7 +32,7 @@ public class DataSourceConfig {
     @Bean
     @ConfigurationProperties(prefix = "spring.datasource.druid")
     public DruidDataSource globalDruidProperties() {
-        return new DruidDataSource();
+        return DruidDataSourceBuilder.create().build();
     }
 
     /**
@@ -138,30 +138,48 @@ public class DataSourceConfig {
      */
     private void applyGlobalDruidConfig(DruidDataSource dataSource) {
         DruidDataSource globalConfig = globalDruidProperties();
+        if (globalConfig == null) {
+            return;
+        }
         
         // 如果数据源没有配置validationQuery，使用全局配置的
-        if (dataSource.getValidationQuery() == null) {
+        if (dataSource.getValidationQuery() == null && globalConfig.getValidationQuery() != null) {
             dataSource.setValidationQuery(globalConfig.getValidationQuery());
         }
         
         // 如果数据源没有配置initialSize，使用全局配置的
-        if (dataSource.getInitialSize() == 0) {
+        if (dataSource.getInitialSize() == 0 && globalConfig.getInitialSize() > 0) {
             dataSource.setInitialSize(globalConfig.getInitialSize());
         }
         
         // 如果数据源没有配置minIdle，使用全局配置的
-        if (dataSource.getMinIdle() == 0) {
+        if (dataSource.getMinIdle() == 0 && globalConfig.getMinIdle() > 0) {
             dataSource.setMinIdle(globalConfig.getMinIdle());
         }
         
         // 如果数据源没有配置maxActive，使用全局配置的
-        if (dataSource.getMaxActive() == 8) {
+        if (dataSource.getMaxActive() == 8 && globalConfig.getMaxActive() > 0) {
             dataSource.setMaxActive(globalConfig.getMaxActive());
         }
         
         // 如果数据源没有配置maxWait，使用全局配置的
-        if (dataSource.getMaxWait() == -1) {
+        if (dataSource.getMaxWait() == -1 && globalConfig.getMaxWait() > 0) {
             dataSource.setMaxWait(globalConfig.getMaxWait());
+        }
+        
+        // 如果数据源没有配置timeBetweenEvictionRunsMillis，使用全局配置的
+        if (dataSource.getTimeBetweenEvictionRunsMillis() == 60000 && globalConfig.getTimeBetweenEvictionRunsMillis() > 0) {
+            dataSource.setTimeBetweenEvictionRunsMillis(globalConfig.getTimeBetweenEvictionRunsMillis());
+        }
+        
+        // 如果数据源没有配置minEvictableIdleTimeMillis，使用全局配置的
+        if (dataSource.getMinEvictableIdleTimeMillis() == 1800000 && globalConfig.getMinEvictableIdleTimeMillis() > 0) {
+            dataSource.setMinEvictableIdleTimeMillis(globalConfig.getMinEvictableIdleTimeMillis());
+        }
+        
+        // 如果数据源没有配置maxEvictableIdleTimeMillis，使用全局配置的
+        if (dataSource.getMaxEvictableIdleTimeMillis() == 25200000 && globalConfig.getMaxEvictableIdleTimeMillis() > 0) {
+            dataSource.setMaxEvictableIdleTimeMillis(globalConfig.getMaxEvictableIdleTimeMillis());
         }
         
         // 如果数据源没有配置testWhileIdle，使用全局配置的
@@ -185,18 +203,8 @@ public class DataSourceConfig {
         }
         
         // 如果数据源没有配置maxPoolPreparedStatementPerConnectionSize，使用全局配置的
-        if (dataSource.getMaxPoolPreparedStatementPerConnectionSize() == -1) {
+        if (dataSource.getMaxPoolPreparedStatementPerConnectionSize() == -1 && globalConfig.getMaxPoolPreparedStatementPerConnectionSize() > 0) {
             dataSource.setMaxPoolPreparedStatementPerConnectionSize(globalConfig.getMaxPoolPreparedStatementPerConnectionSize());
-        }
-        
-        // 如果数据源没有配置timeBetweenEvictionRunsMillis，使用全局配置的
-        if (dataSource.getTimeBetweenEvictionRunsMillis() == 60000) {
-            dataSource.setTimeBetweenEvictionRunsMillis(globalConfig.getTimeBetweenEvictionRunsMillis());
-        }
-        
-        // 如果数据源没有配置minEvictableIdleTimeMillis，使用全局配置的
-        if (dataSource.getMinEvictableIdleTimeMillis() == 1800000) {
-            dataSource.setMinEvictableIdleTimeMillis(globalConfig.getMinEvictableIdleTimeMillis());
         }
     }
 

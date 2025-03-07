@@ -126,12 +126,13 @@ db:
     # 导出Excel文件的目录，默认为当前目录
     directory: ./export
   exclude:
-    # 要排除的schema列表，默认排除INFORMATION_SCHEMA
-    schemas: INFORMATION_SCHEMA
-    # 要排除的表名前缀
-    table-prefixes: SYS_,sys_
-  include:
-    # 明确要包含的表，即使它们符合排除条件
+    # 要排除的表名列表，使用逗号分隔
     # 格式：表名 或 表名@SCHEMA
-    # 注意：要明确包含INFORMATION_SCHEMA中的表，必须使用表名@INFORMATION_SCHEMA格式
-    tables: PRODUCTS@PUBLIC,ORDERS@PUBLIC,USERS@PUBLIC
+    tables: SYS_LOG,SYS_USER,QRTZ_TRIGGERS@PUBLIC
+  include:
+    # 要包含的schema列表，使用逗号分隔
+    schemas: PUBLIC,RLCMS,BSCOPY
+    # 要包含的表名列表，使用逗号分隔
+    # 格式：表名 或 表名@SCHEMA
+    # 注意：要包含其他schema中的表，必须使用表名@SCHEMA格式
+    tables: PRODUCTS,ORDERS,USERS,SPECIAL_TABLE@OTHER_SCHEMA

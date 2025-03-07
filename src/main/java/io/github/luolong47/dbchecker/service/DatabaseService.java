@@ -50,17 +50,17 @@ public class DatabaseService {
     private final JdbcTemplate bscopyPv2JdbcTemplate;
     private final JdbcTemplate bscopyPv3JdbcTemplate;
     
-    // 用户可配置的要排除的schema列表，使用逗号分隔
-    @Value("${db.exclude.schemas:INFORMATION_SCHEMA}")
-    private String excludeSchemas;
+    // 用户可配置的要包含的schema列表，使用逗号分隔
+    @Value("${db.include.schemas:}")
+    private String includeSchemas;
     
-    // 用户可配置的要排除的表名前缀，使用逗号分隔
-    @Value("${db.exclude.table-prefixes:SYS_,sys_}")
-    private String excludeTablePrefixes;
-
-    // 用户可配置的要明确包含的表名，即使它们符合排除条件，使用逗号分隔
+    // 用户可配置的要包含的表名列表，使用逗号分隔
     @Value("${db.include.tables:}")
     private String includeTables;
+
+    // 用户可配置的要排除的表名列表，使用逗号分隔
+    @Value("${db.exclude.tables:}")
+    private String excludeTables;
 
     // 输出文件的目录，默认为当前目录
     @Value("${db.export.directory:.}")
@@ -86,33 +86,39 @@ public class DatabaseService {
     }
 
     /**
-     * 从指定数据源获取所有表信息（排除系统表）
+     * 从数据源获取表信息
      */
     private List<TableInfo> getTablesInfoFromDataSource(JdbcTemplate jdbcTemplate, String dataSourceName) {
+        log.info("开始获取数据源[{}]的表信息", dataSourceName);
+        log.info("当前配置 - 包含Schema: [{}], 包含表: [{}], 排除表: [{}]", 
+                includeSchemas != null ? includeSchemas : "空", 
+                includeTables != null ? includeTables : "空", 
+                excludeTables != null ? excludeTables : "空");
+        
+        List<TableInfo> tables = new ArrayList<>();
         try {
             DatabaseMetaData metaData = jdbcTemplate.getDataSource().getConnection().getMetaData();
             
             // 获取当前数据库产品名称，用于识别系统表
             String dbProductName = metaData.getDatabaseProductName().toLowerCase();
             
-            ResultSet tables = metaData.getTables(null, null, "%", new String[]{"TABLE"});
+            ResultSet tablesResultSet = metaData.getTables(null, null, "%", new String[]{"TABLE"});
             
-            List<TableInfo> tableInfoList = new ArrayList<>();
-            while (tables.next()) {
-                String tableName = tables.getString("TABLE_NAME");
-                String tableSchema = tables.getString("TABLE_SCHEM");
+            while (tablesResultSet.next()) {
+                String tableName = tablesResultSet.getString("TABLE_NAME");
+                String tableSchema = tablesResultSet.getString("TABLE_SCHEM");
 
-                // 排除系统表
-                if (isSystemTable(tableName, tableSchema, dbProductName)) {
+                // 判断是否应该排除该表
+                if (shouldExcludeTable(tableName, tableSchema)) {
                     continue;
                 }
                 
                 TableInfo tableInfo = new TableInfo(tableName, tableSchema != null ? tableSchema : "");
-                tableInfoList.add(tableInfo);
+                tables.add(tableInfo);
             }
             
-            log.info("从{}获取到{}个非系统表", dataSourceName, tableInfoList.size());
-            return tableInfoList;
+            log.info("从{}获取到{}个非系统表", dataSourceName, tables.size());
+            return tables;
         } catch (SQLException e) {
             log.error("获取{}的表信息时出错: {}", dataSourceName, e.getMessage(),e);
             return Collections.emptyList();
@@ -120,113 +126,63 @@ public class DatabaseService {
     }
     
     /**
-     * 判断是否为系统表
+     * 判断表是否应该被排除
+     * 判断逻辑：
+     * 1. 如果表在includeTables中，则一定包含
+     * 2. 如果表在excludeTables中，则一定排除
+     * 3. 如果schema在includeSchemas中，则包含（除非在excludeTables中）
+     * 4. 其他情况都排除
      */
-    private boolean isSystemTable(String tableName, String schema, String dbProductName) {
-        // 检查是否明确要包含的表
+    private boolean shouldExcludeTable(String tableName, String schema) {
+        // 1. 首先检查是否在明确包含的表列表中
         if (isInIncludedTables(tableName, schema)) {
+            log.debug("表[{}.{}]在包含列表中，将被处理", schema, tableName);
             return false;
         }
-        
-        // 检查是否在用户配置的排除schema列表中
-        if (schema != null && isInExcludedSchemas(schema)) {
+
+        // 2. 检查是否在排除的表列表中
+        if (isInExcludedTables(tableName, schema)) {
+            log.info("表[{}.{}]在排除列表中，将被排除", schema, tableName);
             return true;
         }
-        
-        // 检查表名是否以排除的前缀开头
-        if (hasExcludedPrefix(tableName)) {
-            return true;
+
+        // 3. 如果schema在包含列表中，则包含该表
+        if (isInIncludedSchemas(schema)) {
+            log.debug("表[{}.{}]的schema在包含列表中，将被处理", schema, tableName);
+            return false;
         }
-        
-        // 不同数据库的系统表判断规则
-        if (dbProductName.contains("mysql")) {
-            return tableName.startsWith("sys_") || 
-                   "mysql".equalsIgnoreCase(schema) ||
-                   "performance_schema".equalsIgnoreCase(schema);
-        } else if (dbProductName.contains("postgresql") || dbProductName.contains("postgres")) {
-            return "pg_".equalsIgnoreCase(schema);
-        } else if (dbProductName.contains("oracle")) {
-            return tableName.startsWith("SYS_") || 
-                   "SYSTEM".equalsIgnoreCase(schema) || 
-                   "SYS".equalsIgnoreCase(schema);
-        } else if (dbProductName.contains("h2")) {
-            // H2数据库的系统表通常在INFORMATION_SCHEMA或有特定前缀
-            return tableName.startsWith("SYSTEM_") ||
-                   tableName.startsWith("INFORMATION_SCHEMA") ||
-                   "INFORMATION_SCHEMA".equalsIgnoreCase(schema) ||
-                   tableName.equals("CATALOGS") ||
-                   tableName.equals("COLLATIONS") ||
-                   tableName.equals("COLUMNS") ||
-                   tableName.equals("COLUMN_PRIVILEGES") ||
-                   tableName.equals("CONSTANTS") ||
-                   tableName.equals("CONSTRAINTS") ||
-                   tableName.equals("CROSS_REFERENCES") ||
-                   tableName.equals("DOMAINS") ||
-                   tableName.equals("FUNCTION_ALIASES") ||
-                   tableName.equals("FUNCTION_COLUMNS") ||
-                   tableName.equals("HELP") ||
-                   tableName.equals("INDEXES") ||
-                   tableName.equals("IN_DOUBT") ||
-                   tableName.equals("KEY_COLUMN_USAGE") ||
-                   tableName.equals("LOCKS") ||
-                   tableName.equals("QUERY_STATISTICS") ||
-                   tableName.equals("REFERENTIAL_CONSTRAINTS") ||
-                   tableName.equals("RIGHTS") ||
-                   tableName.equals("ROLES") ||
-                   tableName.equals("SCHEMATA") ||
-                   tableName.equals("SEQUENCES") ||
-                   tableName.equals("SESSIONS") ||
-                   tableName.equals("SESSION_STATE") ||
-                   tableName.equals("SETTINGS") ||
-                   tableName.equals("SYNONYMS") ||
-                   tableName.equals("TABLES") ||
-                   tableName.equals("TABLE_CONSTRAINTS") ||
-                   tableName.equals("TABLE_PRIVILEGES") ||
-                   tableName.equals("TABLE_TYPES") ||
-                   tableName.equals("TRIGGERS") ||
-                   tableName.equals("TYPE_INFO") ||
-                   tableName.equals("VIEWS");
-        }
-        
-        // 通用规则
-        return tableName.startsWith("SYS_") || 
-               tableName.startsWith("sys_") || 
-               "SYSTEM".equalsIgnoreCase(schema);
+
+        // 4. 默认排除
+        log.info("表[{}.{}]的schema不在包含列表中，将被排除", schema, tableName);
+        return true;
     }
     
     /**
-     * 检查表名是否在明确包含列表中
+     * 检查表名是否在包含列表中
      */
     private boolean isInIncludedTables(String tableName, String schema) {
         if (includeTables == null || includeTables.trim().isEmpty()) {
             return false;
         }
         
-        // 如果是INFORMATION_SCHEMA中的表，默认不包含，除非明确指定schema
-        if ("INFORMATION_SCHEMA".equalsIgnoreCase(schema)) {
-            // 查找格式为"表名@SCHEMA"的项
-            String fullName = tableName + "@" + schema;
-            String[] tables = includeTables.split(",");
-            for (String table : tables) {
-                if (table.trim().equalsIgnoreCase(fullName)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        
-        // 对于非系统schema，检查表名是否在包含列表中
+        String fullName = tableName + "@" + schema;
         String[] tables = includeTables.split(",");
+        
         for (String table : tables) {
             table = table.trim();
-            // 如果配置项包含@，则需要匹配完整的"表名@SCHEMA"
+            if (table.isEmpty()) {
+                continue;
+            }
+            
             if (table.contains("@")) {
-                String[] parts = table.split("@", 2);
-                if (parts[0].equalsIgnoreCase(tableName) && parts[1].equalsIgnoreCase(schema)) {
+                // 带schema的完整形式
+                if (table.equalsIgnoreCase(fullName)) {
+                    log.debug("表[{}]匹配包含列表中的[{}]", fullName, table);
                     return true;
                 }
             } else if (table.equalsIgnoreCase(tableName)) {
-                // 如果配置项不包含@，则只匹配表名
+                // 不带schema的简单形式
+                log.debug("表[{}]匹配包含列表中的[{}]", tableName, table);
                 return true;
             }
         }
@@ -235,16 +191,31 @@ public class DatabaseService {
     }
     
     /**
-     * 检查schema是否在排除列表中
+     * 检查表名是否在排除列表中
      */
-    private boolean isInExcludedSchemas(String schema) {
-        if (excludeSchemas == null || excludeSchemas.trim().isEmpty()) {
+    private boolean isInExcludedTables(String tableName, String schema) {
+        if (excludeTables == null || excludeTables.trim().isEmpty()) {
             return false;
         }
         
-        String[] schemas = excludeSchemas.split(",");
-        for (String excludedSchema : schemas) {
-            if (excludedSchema.trim().equalsIgnoreCase(schema)) {
+        String fullName = tableName + "@" + schema;
+        String[] tables = excludeTables.split(",");
+        
+        for (String table : tables) {
+            table = table.trim();
+            if (table.isEmpty()) {
+                continue;
+            }
+            
+            if (table.contains("@")) {
+                // 带schema的完整形式
+                if (table.equalsIgnoreCase(fullName)) {
+                    log.debug("表[{}]匹配排除列表中的[{}]", fullName, table);
+                    return true;
+                }
+            } else if (table.equalsIgnoreCase(tableName)) {
+                // 不带schema的简单形式
+                log.debug("表[{}]匹配排除列表中的[{}]", tableName, table);
                 return true;
             }
         }
@@ -253,20 +224,28 @@ public class DatabaseService {
     }
     
     /**
-     * 检查表名是否以排除的前缀开头
+     * 检查schema是否在包含列表中
      */
-    private boolean hasExcludedPrefix(String tableName) {
-        if (excludeTablePrefixes == null || excludeTablePrefixes.trim().isEmpty()) {
+    private boolean isInIncludedSchemas(String schema) {
+        if (includeSchemas == null || includeSchemas.trim().isEmpty()) {
+            log.debug("包含的schema列表为空");
             return false;
         }
         
-        String[] prefixes = excludeTablePrefixes.split(",");
-        for (String prefix : prefixes) {
-            if (tableName.startsWith(prefix.trim())) {
+        String[] schemas = includeSchemas.split(",");
+        for (String includedSchema : schemas) {
+            includedSchema = includedSchema.trim();
+            if (includedSchema.isEmpty()) {
+                continue;
+            }
+            
+            if (includedSchema.equalsIgnoreCase(schema)) {
+                log.debug("Schema[{}]在包含列表中", schema);
                 return true;
             }
         }
         
+        log.debug("Schema[{}]不在包含列表[{}]中", schema, includeSchemas);
         return false;
     }
     
