@@ -1,6 +1,8 @@
 package io.github.luolong47.dbchecker.config;
 
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -10,8 +12,8 @@ import java.util.Map;
 /**
  * 数据库初始化脚本配置类
  */
-@Component
 @ConfigurationProperties(prefix = "spring.datasource.init")
+@Data
 public class DatabaseInitScriptsProperties {
 
     /**
@@ -24,28 +26,4 @@ public class DatabaseInitScriptsProperties {
      */
     private Map<String, List<String>> scripts = new HashMap<>();
 
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public Map<String, List<String>> getScripts() {
-        return scripts;
-    }
-
-    public void setScripts(Map<String, List<String>> scripts) {
-        this.scripts = scripts;
-    }
-    
-    /**
-     * 获取指定数据源的脚本列表
-     * @param datasourceName 数据源名称
-     * @return 脚本列表
-     */
-    public List<String> getScriptsForDatasource(String datasourceName) {
-        return scripts.get(datasourceName);
-    }
 } 

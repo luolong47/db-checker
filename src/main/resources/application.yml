@@ -1,12 +1,16 @@
 spring:
   application:
     name: db-checker
+  # 禁用Spring Boot的自动初始化
+  sql:
+    init:
+      mode: never
   # 主数据源配置
   datasource:
     # 数据库初始化脚本配置
     init:
       # 是否启用初始化
-      enabled: true
+      enabled: false
       # 各数据源脚本配置
       scripts:
         ora:
@@ -33,38 +37,6 @@ spring:
         bscopy-pv3:
           - db/schema-bscopy_pv3.sql
           - db/data-bscopy_pv3.sql
-    # Druid连接池配置
-    druid:
-      # 指定使用Druid数据源
-      type: com.alibaba.druid.pool.DruidDataSource
-      # 初始连接数
-      initial-size: 8
-      # 最小空闲连接数
-      min-idle: 8
-      # 最大连接数
-      max-active: 64
-      # 获取连接等待超时时间（毫秒）
-      max-wait: 60000
-      # 检测间隔时间（毫秒）
-      time-between-eviction-runs-millis: 60000
-      # 连接在池中最小生存的时间（毫秒）
-      min-evictable-idle-time-millis: 600000
-      # 连接在池中最大生存的时间（毫秒）
-      max-evictable-idle-time-millis: 1800000
-      # 是否开启PSCache
-      pool-prepared-statements: true
-      # 每个连接上PSCache的大小
-      max-pool-prepared-statement-per-connection-size: 20
-      # 检测连接是否有效的SQL
-      validation-query: SELECT 1
-      # 检测连接是否有效的超时时间（秒）
-      validation-query-timeout: 5
-      # 申请连接时执行validationQuery检测连接是否有效
-      test-on-borrow: false
-      # 归还连接时执行validationQuery检测连接是否有效
-      test-on-return: false
-      # 空闲时检测连接是否有效
-      test-while-idle: true
     # ora数据源配置（原primary）
     ora:
       driver-class-name: org.h2.Driver
@@ -136,3 +108,10 @@ db:
     # 格式：表名 或 表名@SCHEMA
     # 注意：要包含其他schema中的表，必须使用表名@SCHEMA格式
     tables: PRODUCTS,ORDERS,USERS,SPECIAL_TABLE@OTHER_SCHEMA
+    # 运行模式配置
+    run:
+      # 运行模式：RESUME(断点续跑，默认)、FULL(全量重跑)、DB(指定数据库重跑)
+      mode: RESUME
+      # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
+      rerun:
+        databases: 
