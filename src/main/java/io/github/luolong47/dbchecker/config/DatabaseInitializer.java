@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.config;
 
+import cn.hutool.core.util.StrUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,7 +72,7 @@ public class DatabaseInitializer implements CommandLineRunner {
             DataSource dataSource = dataSourceMap.get(dataSourceName);
             if (dataSource == null) {
                 logger.warn("数据源 '{}' 不存在，跳过初始化脚本。可用的数据源: {}", 
-                         dataSourceName, String.join(", ", dataSourceMap.keySet()));
+                         dataSourceName, StrUtil.join(", ", dataSourceMap.keySet()));
                 continue;
             }
 

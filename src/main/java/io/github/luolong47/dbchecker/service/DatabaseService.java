@@ -10,19 +10,12 @@ import io.github.luolong47.dbchecker.config.DbWhereConditionConfig;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.Font;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import javax.annotation.PostConstruct;
 import java.io.File;
@@ -35,14 +28,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -186,10 +174,10 @@ public class DatabaseService {
         }
         
         // 如果是指定库重跑，检查是否在指定列表中
-        if (!StringUtils.isEmpty(rerunDatabases)) {
-            String[] dbs = rerunDatabases.split(",");
+        if (!StrUtil.isEmpty(rerunDatabases)) {
+            List<String> dbs = StrUtil.split(rerunDatabases, ',');
             for (String db : dbs) {
-                if (db.trim().equalsIgnoreCase(dataSourceName)) {
+                if (StrUtil.equalsIgnoreCase(StrUtil.trim(db), dataSourceName)) {
                     return true;
                 }
             }
@@ -219,18 +207,19 @@ public class DatabaseService {
      */
     private boolean shouldProcessTable(String tableName, String schema, String dataSourceName) {
         // 标识符：数据源名称 + schema + 表名
-        String tableKey = dataSourceName + "|" + (schema != null ? schema : "") + "|" + tableName;
+        String tableKey = StrUtil.format("{}|{}|{}", dataSourceName, StrUtil.emptyToDefault(schema, ""), tableName);
         
         // 如果是全量重跑，总是处理
-        if ("FULL".equalsIgnoreCase(runMode)) {
+        if (StrUtil.equalsIgnoreCase("FULL", runMode)) {
             return true;
         }
         
         // 如果是指定库重跑，检查是否在指定列表中
-        if (!StringUtils.isEmpty(rerunDatabases)) {
-            String[] dbs = rerunDatabases.split(",");
+        if (!StrUtil.isEmpty(rerunDatabases)) {
+            List<String> dbs = StrUtil.split(rerunDatabases, ',');
             for (String db : dbs) {
-                if (db.trim().equalsIgnoreCase(dataSourceName)) {
+                if (StrUtil.equalsIgnoreCase(StrUtil.trim(db), dataSourceName)) {
+                    log.info("表[{}]在需要重跑的数据库[{}]中，符合处理条件", tableName, dataSourceName);
                     return true;
                 }
             }
@@ -264,7 +253,7 @@ public class DatabaseService {
      */
     private void markTableProcessed(String tableName, String schema, String dataSourceName) {
         // 标识符：数据源名称 + schema + 表名
-        String tableKey = dataSourceName + "|" + (schema != null ? schema : "") + "|" + tableName;
+        String tableKey = StrUtil.format("{}|{}|{}", dataSourceName, StrUtil.emptyToDefault(schema, ""), tableName);
         processedTables.add(tableKey);
         
         // 每处理10个表保存一次状态，避免频繁IO
@@ -292,10 +281,6 @@ public class DatabaseService {
         List<TableInfo> tables = new ArrayList<>();
         try (Connection connection = jdbcTemplate.getDataSource().getConnection()) {
             DatabaseMetaData metaData = connection.getMetaData();
-            
-            // 获取当前数据库产品名称，用于识别系统表
-            String dbProductName = metaData.getDatabaseProductName().toLowerCase();
-            
             ResultSet tablesResultSet = metaData.getTables(null, null, "%", new String[]{"TABLE"});
             
             while (tablesResultSet.next()) {
@@ -330,18 +315,18 @@ public class DatabaseService {
                     }
                     
                     if (!tableInfo.getMoneyFields().isEmpty()) {
-                        log.info("表[{}]中发现{}个金额字段: {}", tableName, tableInfo.getMoneyFields().size(), tableInfo.getMoneyFields());
+                        log.info("表[{}]中发现{}个金额字段: {}", tableName, tableInfo.getMoneyFields().size(), StrUtil.join(", ", tableInfo.getMoneyFields()));
                     }
                     
                     // 获取表记录数
                     try {
                         // 拼接带Schema的完整表名
-                        String fullTableName = tableSchema != null && !tableSchema.isEmpty() 
-                            ? tableSchema + "." + tableName 
+                        String fullTableName = StrUtil.isNotEmpty(tableSchema) 
+                            ? StrUtil.format("{}.{}", tableSchema, tableName) 
                             : tableName;
                         
                         // 查询记录数
-                        String countSql = "SELECT COUNT(*) FROM " + fullTableName;
+                        String countSql = StrUtil.format("SELECT COUNT(*) FROM {}", fullTableName);
                         // 应用WHERE条件
                         countSql = whereConditionConfig.applyCondition(countSql, dataSourceName, tableName);
                         log.debug("执行SQL: {}", countSql);
@@ -353,11 +338,11 @@ public class DatabaseService {
                         if (!tableInfo.getMoneyFields().isEmpty()) {
                             // 构建查询语句，一次查询所有字段的SUM
                             List<String> sumExpressions = tableInfo.getMoneyFields().stream()
-                                .map(field -> String.format("SUM(%s) AS \"%s\"", field, field))
+                                .map(field -> StrUtil.format("SUM({}) AS \"{}\"", field, field))
                                 .collect(Collectors.toList());
                             
-                            String sumSql = String.format("SELECT %s FROM %s",
-                                String.join(", ", sumExpressions),
+                            String sumSql = StrUtil.format("SELECT {} FROM {}", 
+                                StrUtil.join(", ", sumExpressions),
                                 fullTableName);
                             
                             // 应用WHERE条件
@@ -446,28 +431,20 @@ public class DatabaseService {
      * 检查表名是否在包含列表中
      */
     private boolean isInIncludedTables(String tableName, String schema) {
-        if (includeTables == null || includeTables.trim().isEmpty()) {
+        if (StrUtil.isBlank(includeTables)) {
             return false;
         }
         
-        String fullName = tableName + "@" + schema;
-        String[] tables = includeTables.split(",");
+        String fullName = StrUtil.format("{}@{}", tableName, schema);
+        List<String> tables = StrUtil.split(includeTables, ',');
         
         for (String table : tables) {
-            table = table.trim();
-            if (table.isEmpty()) {
+            if (StrUtil.isEmpty(table)) {
                 continue;
             }
             
-            if (table.contains("@")) {
-                // 带schema的完整形式
-                if (table.equalsIgnoreCase(fullName)) {
-                    log.debug("表[{}]匹配包含列表中的[{}]", fullName, table);
-                    return true;
-                }
-            } else if (table.equalsIgnoreCase(tableName)) {
-                // 不带schema的简单形式
-                log.debug("表[{}]匹配包含列表中的[{}]", tableName, table);
+            if (StrUtil.equalsIgnoreCase(StrUtil.trim(table), tableName) || 
+                StrUtil.equalsIgnoreCase(StrUtil.trim(table), fullName)) {
                 return true;
             }
         }
@@ -479,28 +456,20 @@ public class DatabaseService {
      * 检查表名是否在排除列表中
      */
     private boolean isInExcludedTables(String tableName, String schema) {
-        if (excludeTables == null || excludeTables.trim().isEmpty()) {
+        if (StrUtil.isBlank(excludeTables)) {
             return false;
         }
         
-        String fullName = tableName + "@" + schema;
-        String[] tables = excludeTables.split(",");
+        String fullName = StrUtil.format("{}@{}", tableName, schema);
+        List<String> tables = StrUtil.split(excludeTables, ',');
         
         for (String table : tables) {
-            table = table.trim();
-            if (table.isEmpty()) {
+            if (StrUtil.isEmpty(table)) {
                 continue;
             }
             
-            if (table.contains("@")) {
-                // 带schema的完整形式
-                if (table.equalsIgnoreCase(fullName)) {
-                    log.debug("表[{}]匹配排除列表中的[{}]", fullName, table);
-                    return true;
-                }
-            } else if (table.equalsIgnoreCase(tableName)) {
-                // 不带schema的简单形式
-                log.debug("表[{}]匹配排除列表中的[{}]", tableName, table);
+            if (StrUtil.equalsIgnoreCase(StrUtil.trim(table), tableName) || 
+                StrUtil.equalsIgnoreCase(StrUtil.trim(table), fullName)) {
                 return true;
             }
         }
@@ -512,25 +481,22 @@ public class DatabaseService {
      * 检查schema是否在包含列表中
      */
     private boolean isInIncludedSchemas(String schema) {
-        if (includeSchemas == null || includeSchemas.trim().isEmpty()) {
-            log.debug("包含的schema列表为空");
+        if (StrUtil.isBlank(includeSchemas)) {
             return false;
         }
         
-        String[] schemas = includeSchemas.split(",");
+        List<String> schemas = StrUtil.split(includeSchemas, ',');
+        
         for (String includedSchema : schemas) {
-            includedSchema = includedSchema.trim();
-            if (includedSchema.isEmpty()) {
+            if (StrUtil.isEmpty(includedSchema)) {
                 continue;
             }
             
-            if (includedSchema.equalsIgnoreCase(schema)) {
-                log.debug("Schema[{}]在包含列表中", schema);
+            if (StrUtil.equalsIgnoreCase(StrUtil.trim(includedSchema), schema)) {
                 return true;
             }
         }
         
-        log.debug("Schema[{}]不在包含列表[{}]中", schema, includeSchemas);
         return false;
     }
     
@@ -565,19 +531,17 @@ public class DatabaseService {
      * @return 表的记录数
      */
     private long getTableRecordCount(JdbcTemplate jdbcTemplate, String schema, String tableName) {
-        try {
-            // 拼接带Schema的完整表名
-            String fullTableName = schema != null && !schema.isEmpty() 
-                ? schema + "." + tableName 
+        String fullTableName = StrUtil.isNotEmpty(schema)
+                ? StrUtil.format("{}.{}", schema, tableName)
                 : tableName;
-            
-            // 查询记录数
-            String sql = "SELECT COUNT(*) FROM " + fullTableName;
-            log.debug("执行SQL: {}", sql);
+        
+        String sql = StrUtil.format("SELECT COUNT(*) FROM {}", fullTableName);
+        
+        try {
             Long count = jdbcTemplate.queryForObject(sql, Long.class);
             return count != null ? count : 0L;
         } catch (Exception e) {
-            log.error("获取表[{}]记录数时出错: {}", tableName, e.getMessage(),e);
+            log.error("获取表 {} 记录数失败: {}", fullTableName, e.getMessage());
             return 0L;
         }
     }
@@ -589,8 +553,8 @@ public class DatabaseService {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
         
         tables.forEach(table -> {
-            // 创建唯一键，使用表名和schema，让表名排在前面有利于按表名排序
-            String key = table.getTableName() + "#@#" + table.getSchema();
+            // 组合键: tableName#@#schema
+            String key = StrUtil.format("{}#@#{}", table.getTableName(), table.getSchema());
             
             // 获取或创建TableMetaInfo
             TableMetaInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableMetaInfo(table.getSchema()));
@@ -607,7 +571,7 @@ public class DatabaseService {
                     if (!table.getMoneyFields().isEmpty()) {
                         log.info("表 {}.{} 发现{}个金额字段: {}", 
                             table.getSchema(), table.getTableName(), 
-                            table.getMoneyFields().size(), String.join(", ", table.getMoneyFields()));
+                            table.getMoneyFields().size(), StrUtil.join(", ", table.getMoneyFields()));
                     }
                 } catch (Exception e) {
                     log.warn("处理表 {}.{} 的金额字段时出错: {}", table.getSchema(), table.getTableName(), e.getMessage(), e);
@@ -675,9 +639,9 @@ public class DatabaseService {
             List<String> counts = new ArrayList<>();
             for (String dataSource : dataSources) {
                 Long count = recordCounts.getOrDefault(dataSource, 0L);
-                counts.add(String.valueOf(count));
+                counts.add(StrUtil.toString(count));
             }
-            return String.join("|", counts);
+            return StrUtil.join("|", counts);
         }
         
         public void addMoneyField(String fieldName) {
@@ -685,12 +649,7 @@ public class DatabaseService {
         }
         
         public String getFormattedMoneyFields() {
-            if (moneyFields.isEmpty()) {
-                return "";
-            }
-            List<String> sortedFields = new ArrayList<>(moneyFields);
-            Collections.sort(sortedFields);
-            return String.join("|", sortedFields);
+            return StrUtil.join("|", moneyFields);
         }
         
         // 添加SUM值的方法
@@ -748,10 +707,10 @@ public class DatabaseService {
         }
         
         // 指定库重跑模式
-        if (!StringUtils.isEmpty(rerunDatabases)) {
-            String[] dbs = rerunDatabases.split(",");
+        if (!StrUtil.isEmpty(rerunDatabases)) {
+            List<String> dbs = StrUtil.split(rerunDatabases, ',');
             for (String db : dbs) {
-                String dbName = db.trim();
+                String dbName = StrUtil.trim(db);
                 if (allDatabases.containsKey(dbName)) {
                     databases.put(dbName, allDatabases.get(dbName));
                 } else {
@@ -776,7 +735,7 @@ public class DatabaseService {
      */
     public void exportMoneyFieldSumToExcel() throws IOException {
         log.info("当前运行模式: {}", runMode);
-        if (!StringUtils.isEmpty(rerunDatabases)) {
+        if (!StrUtil.isEmpty(rerunDatabases)) {
             log.info("指定重跑数据库: {}", rerunDatabases);
         }
         log.info("开始收集表信息...");
@@ -786,7 +745,7 @@ public class DatabaseService {
         
         // 获取需要处理的数据库
         Map<String, JdbcTemplate> databasesToProcess = getDatabasesToProcess();
-        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), String.join(", ", databasesToProcess.keySet()));
+        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), StrUtil.join(", ", databasesToProcess.keySet()));
         
         // 使用CompletableFuture并发获取表信息
         List<CompletableFuture<List<TableInfo>>> futures = new ArrayList<>();
@@ -849,8 +808,9 @@ public class DatabaseService {
         
         // 使用TableMetaInfo中的求和结果，直接构建输出信息
         sortedKeys.forEach(key -> {
-            String[] parts = key.split("#@#", 2);
-            String tableName = parts[0];
+            List<String> parts = StrUtil.split(key, "#@#");
+            String tableName = parts.get(0);
+            String schema = parts.get(1);
             
             TableMetaInfo metaInfo = tableInfoMap.get(key);
             
@@ -864,8 +824,8 @@ public class DatabaseService {
                 sortedMoneyFields.forEach(moneyField -> {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
                         tableName,
-                        metaInfo.getSchema(),
-                        String.join(" | ", metaInfo.getDataSources()),
+                        schema,
+                        StrUtil.join(" | ", metaInfo.getDataSources()),
                         metaInfo.getFormattedRecordCounts(),
                         metaInfo.getFormattedMoneyFields(),
                         moneyField
@@ -1272,8 +1232,9 @@ public class DatabaseService {
         Map<String, String> tableToSchemaMap = new HashMap<>(); // 保存表对应的schema
         
         tableInfoMap.forEach((key, metaInfo) -> {
-            String[] parts = key.split("#@#", 2);
-            String tableName = parts[0];
+            List<String> parts = StrUtil.split(key, "#@#");
+            String tableName = parts.get(0);
+            String schema = parts.get(1);
             
             // 只查询有金额字段的表
             if (!metaInfo.getMoneyFields().isEmpty() && !allTablesToQuery.contains(tableName)) {
@@ -1304,7 +1265,7 @@ public class DatabaseService {
         // 处理所有表的数据，按表名分组
         allTablesToQuery.forEach(tableName -> {
             String schema = tableToSchemaMap.get(tableName);
-            TableMetaInfo metaInfo = tableInfoMap.get(tableName + "#@#" + schema);
+            TableMetaInfo metaInfo = tableInfoMap.get(StrUtil.format("{}#@#{}", tableName, schema));
             
             if (metaInfo == null || metaInfo.getMoneyFields().isEmpty()) {
                 return; // 跳过没有金额字段的表
@@ -1317,7 +1278,7 @@ public class DatabaseService {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
                         tableName,
                         schema,
-                        String.join(" | ", metaInfo.getDataSources()),
+                        StrUtil.join(" | ", metaInfo.getDataSources()),
                         metaInfo.getFormattedRecordCounts(),
                         metaInfo.getFormattedMoneyFields(),
                         moneyField

@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.config;
 
+import cn.hutool.core.util.StrUtil;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -46,7 +47,7 @@ public class DbWhereConditionConfig {
         // 忽略大小写查找数据源
         Map<String, String> tableConditions = null;
         for (Map.Entry<String, Map<String, String>> entry : where.entrySet()) {
-            if (entry.getKey().equalsIgnoreCase(dataSourceName)) {
+            if (StrUtil.equalsIgnoreCase(entry.getKey(), dataSourceName)) {
                 tableConditions = entry.getValue();
                 log.debug("找到数据源 [{}] 的条件配置", dataSourceName);
                 break;
@@ -56,7 +57,7 @@ public class DbWhereConditionConfig {
         if (tableConditions != null) {
             // 忽略大小写查找表名
             for (Map.Entry<String, String> entry : tableConditions.entrySet()) {
-                if (entry.getKey().equalsIgnoreCase(tableName)) {
+                if (StrUtil.equalsIgnoreCase(entry.getKey(), tableName)) {
                     log.debug("找到表 [{}] 的条件: {}", tableName, entry.getValue());
                     return entry.getValue();
                 }
@@ -78,9 +79,9 @@ public class DbWhereConditionConfig {
      */
     public String applyCondition(String sql, String dataSourceName, String tableName) {
         String condition = getCondition(dataSourceName, tableName);
-        if (condition != null && !condition.isEmpty()) {
+        if (StrUtil.isNotEmpty(condition)) {
             String newSql;
-            if (sql.toLowerCase().contains(" where ")) {
+            if (StrUtil.containsIgnoreCase(sql, " where ")) {
                 newSql = sql + " AND " + condition;
             } else {
                 newSql = sql + " WHERE " + condition;
