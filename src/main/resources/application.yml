@@ -42,73 +42,72 @@ spring:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # rlcms_base数据源配置（原secondary）
     rlcms-base:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/rlcms_base;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # rlcms_pv1数据源配置（原tertiary）
     rlcms-pv1:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/rlcms_pv1;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # rlcms_pv2数据源配置（原fourth）
     rlcms-pv2:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/rlcms_pv2;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # rlcms_pv3数据源配置（原fifth）
     rlcms-pv3:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/rlcms_pv3;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # bscopy_pv1数据源配置（原sixth）
     bscopy-pv1:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/bscopy_pv1;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # bscopy_pv2数据源配置（原seventh）
     bscopy-pv2:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
     # bscopy_pv3数据源配置（原eighth）
     bscopy-pv3:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
       username: sa
-      password: 
+      password:
 
 # 日志配置
 logging:
   level:
-    io.github.luolong47.dbchecker: DEBUG
+    root: info
     org.springframework.jdbc.core: DEBUG
-    org.springframework.boot.context.config: TRACE
-    org.springframework.boot.context.properties: TRACE
+    io.github.luolong47.dbchecker: DEBUG
+    # 日志文件配置
+  file:
+    name: ./logs/db-checker.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 # 数据库表排除与包含配置
 db:
   export:
     # 导出Excel文件的目录，默认为当前目录
     directory: ./export
-  exclude:
-    # 要排除的表名列表，使用逗号分隔
-    # 格式：表名 或 表名@SCHEMA
-    tables: SYS_LOG,SYS_USER,QRTZ_TRIGGERS@PUBLIC
   include:
     # 要包含的schema列表，使用逗号分隔
     schemas: PUBLIC,RLCMS,BSCOPY
-    # 要包含的表名列表，使用逗号分隔
-    # 格式：表名 或 表名@SCHEMA
-    # 注意：要包含其他schema中的表，必须使用表名@SCHEMA格式
+    # 要包含的表名列表，使用逗号分隔（必填项）
     tables: PRODUCTS,ORDERS,USERS,SPECIAL_TABLE@OTHER_SCHEMA
     # 运行模式配置
   run:
@@ -119,7 +118,7 @@ db:
     file: ./export/resume_state.json
   # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
   rerun:
-      databases:
+    databases:
   where:
     ora:
       test1: "amount1 = 1000.123"

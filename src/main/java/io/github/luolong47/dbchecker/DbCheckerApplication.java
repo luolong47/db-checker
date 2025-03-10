@@ -10,9 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-
-import java.util.List;
-import java.util.Map;
+import org.springframework.util.StopWatch;
 
 @Slf4j
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
@@ -36,9 +34,17 @@ public class DbCheckerApplication {
             log.info("开始测试多数据源...");
             
             try {
+
+                // 使用Stopwatch计时
+                StopWatch stopWatch = new StopWatch();
+                stopWatch.start("导出金额字段SUM比对");
+                
                 // 导出金额字段SUM比对结果
                 databaseService.exportMoneyFieldSumToExcel();
-                
+
+                // 停止计时并输出耗时
+                stopWatch.stop();
+                log.info("导出金额字段SUM比对结果完成，总耗时: {} 秒", stopWatch.getTotalTimeSeconds());
                 log.info("END");
             } catch (Exception e) {
                 log.error("测试多数据源时发生错误", e);
