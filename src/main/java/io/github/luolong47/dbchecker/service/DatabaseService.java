@@ -717,7 +717,13 @@ public class DatabaseService {
             "公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3",
             "公式4: ORA==PV1==PV2==PV3",
             "公式5: ORA==BASE==PV1==PV2==PV3",
-            "公式6: ORA==PV1"
+            "公式6: ORA==PV1",
+            "COUNT公式1: ORA==PV1+PV2+PV3",
+            "COUNT公式2: ORA==PV1+PV2+PV3",
+            "COUNT公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3",
+            "COUNT公式4: ORA==PV1==PV2==PV3",
+            "COUNT公式5: ORA==BASE==PV1==PV2==PV3",
+            "COUNT公式6: ORA==PV1"
         };
 
         // 设置列头
@@ -773,7 +779,7 @@ public class DatabaseService {
             }
 
             // 为每行的公式列添加空单元格（后续会填充公式）
-            for (int i = 21; i <= 26; i++) {
+            for (int i = 21; i <= 32; i++) {
                 row.createCell(i);
             }
 
@@ -790,68 +796,118 @@ public class DatabaseService {
             String sumBscopyPv2Cell = "T" + currentRow;    // SUM_BSCOPY_PV2 (20列)
             String sumBscopyPv3Cell = "U" + currentRow;    // SUM_BSCOPY_PV3 (21列)
 
-            // 手动设置公式
-            if (!StrUtil.isEmpty(info.getSumField())) {
-                // 公式1: SUM_ORA == SUM_RLCMS_PV1 + SUM_RLCMS_PV2 + SUM_RLCMS_PV3
-                Cell formula1Cell = row.getCell(21);
-                formula1Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsPv1Cell + "),ISBLANK(" + sumRlcmsPv2Cell + "),ISBLANK(" + sumRlcmsPv3Cell + ")),\"\",IFERROR(IF(" + sumOraCell + "=(" + sumRlcmsPv1Cell + "+" + sumRlcmsPv2Cell + "+" + sumRlcmsPv3Cell + "),\"是\",\"否\"),\"否\"))");
+            // COUNT值所在单元格的列引用
+            String countOraCell = "D" + currentRow;          // COUNT_ORA (4列)
+            String countRlcmsBaseCell = "E" + currentRow;    // COUNT_RLCMS_BASE (5列)
+            String countRlcmsPv1Cell = "F" + currentRow;     // COUNT_RLCMS_PV1 (6列)
+            String countRlcmsPv2Cell = "G" + currentRow;     // COUNT_RLCMS_PV2 (7列)
+            String countRlcmsPv3Cell = "H" + currentRow;     // COUNT_RLCMS_PV3 (8列)
+            String countBscopyPv1Cell = "I" + currentRow;    // COUNT_BSCOPY_PV1 (9列)
+            String countBscopyPv2Cell = "J" + currentRow;    // COUNT_BSCOPY_PV2 (10列)
+            String countBscopyPv3Cell = "K" + currentRow;    // COUNT_BSCOPY_PV3 (11列)
 
-                // 公式2: SUM_ORA == SUM_RLCMS_PV1 + SUM_RLCMS_PV2 + SUM_RLCMS_PV3
-                Cell formula2Cell = row.getCell(22);
-                formula2Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsPv1Cell + "),ISBLANK(" + sumRlcmsPv2Cell + "),ISBLANK(" + sumRlcmsPv3Cell + ")),\"\",IFERROR(IF(" + sumOraCell + "=(" + sumRlcmsPv1Cell + "+" + sumRlcmsPv2Cell + "+" + sumRlcmsPv3Cell + "),\"是\",\"否\"),\"否\"))");
+            // 设置SUM公式
+            // 公式1: ORA==PV1+PV2+PV3
+            row.createCell(21).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
+                    sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
 
-                // 公式3: SUM_ORA == SUM_RLCMS_BASE == SUM_BSCOPY_PV1 == SUM_BSCOPY_PV2 == SUM_BSCOPY_PV3
-                Cell formula3Cell = row.getCell(23);
-                formula3Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsBaseCell + "),ISBLANK(" + sumBscopyPv1Cell + "),ISBLANK(" + sumBscopyPv2Cell + "),ISBLANK(" + sumBscopyPv3Cell + ")),\"\",IFERROR(IF(AND(" +
-                    sumOraCell + "=" + sumRlcmsBaseCell + "," +
-                    sumRlcmsBaseCell + "=" + sumBscopyPv1Cell + "," +
-                    sumBscopyPv1Cell + "=" + sumBscopyPv2Cell + "," +
-                    sumBscopyPv2Cell + "=" + sumBscopyPv3Cell + "),\"是\",\"否\"),\"否\"))");
+            // 公式2: ORA==PV1+PV2+PV3
+            row.createCell(22).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
+                    sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
 
-                // 公式4: SUM_ORA == SUM_RLCMS_PV1 == SUM_RLCMS_PV2 == SUM_RLCMS_PV3
-                Cell formula4Cell = row.getCell(24);
-                formula4Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsPv1Cell + "),ISBLANK(" + sumRlcmsPv2Cell + "),ISBLANK(" + sumRlcmsPv3Cell + ")),\"\",IFERROR(IF(AND(" +
-                    sumOraCell + "=" + sumRlcmsPv1Cell + "," +
-                    sumRlcmsPv1Cell + "=" + sumRlcmsPv2Cell + "," +
-                    sumRlcmsPv2Cell + "=" + sumRlcmsPv3Cell + "),\"是\",\"否\"),\"否\"))");
+            // 公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
+            row.createCell(23).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsBaseCell, sumBscopyPv1Cell, sumBscopyPv2Cell, sumBscopyPv3Cell,
+                    sumOraCell, sumRlcmsBaseCell, sumOraCell, sumBscopyPv1Cell, sumOraCell, sumBscopyPv2Cell, sumOraCell, sumBscopyPv3Cell));
 
-                // 公式5: SUM_ORA == SUM_RLCMS_BASE == SUM_RLCMS_PV1 == SUM_RLCMS_PV2 == SUM_RLCMS_PV3
-                Cell formula5Cell = row.getCell(25);
-                formula5Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsBaseCell + "),ISBLANK(" + sumRlcmsPv1Cell + "),ISBLANK(" + sumRlcmsPv2Cell + "),ISBLANK(" + sumRlcmsPv3Cell + ")),\"\",IFERROR(IF(AND(" +
-                    sumOraCell + "=" + sumRlcmsBaseCell + "," +
-                    sumRlcmsBaseCell + "=" + sumRlcmsPv1Cell + "," +
-                    sumRlcmsPv1Cell + "=" + sumRlcmsPv2Cell + "," +
-                    sumRlcmsPv2Cell + "=" + sumRlcmsPv3Cell + "),\"是\",\"否\"),\"否\"))");
+            // 公式4: ORA==PV1==PV2==PV3
+            row.createCell(24).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
+                    sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
 
-                // 公式6: SUM_ORA == SUM_RLCMS_PV1
-                Cell formula6Cell = row.getCell(26);
-                formula6Cell.setCellFormula("IF(OR(ISBLANK(" + sumOraCell + "),ISBLANK(" + sumRlcmsPv1Cell + ")),\"\",IFERROR(IF(" + sumOraCell + "=" + sumRlcmsPv1Cell + ",\"是\",\"否\"),\"否\"))");
+            // 公式5: ORA==BASE==PV1==PV2==PV3
+            row.createCell(25).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsBaseCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
+                    sumOraCell, sumRlcmsBaseCell, sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
 
-                // 为公式单元格添加条件格式
-                SheetConditionalFormatting sheetCF = writer.getSheet().getSheetConditionalFormatting();
+            // 公式6: ORA==PV1
+            row.createCell(26).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\"), IF(ABS(%s-%s)<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
+                    sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv1Cell));
 
-                // 为每个公式单元格创建条件格式
-                for (int i = 21; i <= 26; i++) {
-                    Cell cell = row.getCell(i);
-                    String cellRef = cell.getAddress().formatAsString();
+            // 设置COUNT公式
+            // COUNT公式1: ORA==PV1+PV2+PV3
+            row.createCell(27).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
+                    countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
 
-                    // 创建"是"规则
-                    ConditionalFormattingRule yesRule = sheetCF.createConditionalFormattingRule("\"是\"=" + cellRef);
-                    PatternFormatting yesPattern = yesRule.createPatternFormatting();
-                    yesPattern.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
-                    yesPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+            // COUNT公式2: ORA==PV1+PV2+PV3
+            row.createCell(28).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
+                    countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
 
-                    // 创建"否"规则
-                    ConditionalFormattingRule noRule = sheetCF.createConditionalFormattingRule("\"否\"=" + cellRef);
-                    PatternFormatting noPattern = noRule.createPatternFormatting();
-                    noPattern.setFillBackgroundColor(IndexedColors.ROSE.getIndex());
-                    noPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+            // COUNT公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
+            row.createCell(29).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsBaseCell, countBscopyPv1Cell, countBscopyPv2Cell, countBscopyPv3Cell,
+                    countOraCell, countRlcmsBaseCell, countOraCell, countBscopyPv1Cell, countOraCell, countBscopyPv2Cell, countOraCell, countBscopyPv3Cell));
 
-                    // 应用规则到单元格
-                    CellRangeAddress[] regions = {new CellRangeAddress(cell.getRowIndex(), cell.getRowIndex(),
-                        cell.getColumnIndex(), cell.getColumnIndex())};
-                    sheetCF.addConditionalFormatting(regions, yesRule, noRule);
-                }
+            // COUNT公式4: ORA==PV1==PV2==PV3
+            row.createCell(30).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(%s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
+                    countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
+
+            // COUNT公式5: ORA==BASE==PV1==PV2==PV3
+            row.createCell(31).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
+                        "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsBaseCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
+                    countOraCell, countRlcmsBaseCell, countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
+
+            // COUNT公式6: ORA==PV1
+            row.createCell(32).setCellFormula(
+                String.format("IF(AND(%s<>\"\", %s<>\"\"), IF(%s=%s, \"TRUE\", \"FALSE\"), \"N/A\")",
+                    countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv1Cell));
+
+            // 为公式单元格添加条件格式
+            SheetConditionalFormatting sheetCF = writer.getSheet().getSheetConditionalFormatting();
+
+            // 为每个公式单元格创建条件格式
+            for (int i = 21; i <= 32; i++) {
+                Cell cell = row.getCell(i);
+                String cellRef = cell.getAddress().formatAsString();
+
+                // 创建"是"规则
+                ConditionalFormattingRule yesRule = sheetCF.createConditionalFormattingRule("\"是\"=" + cellRef);
+                PatternFormatting yesPattern = yesRule.createPatternFormatting();
+                yesPattern.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
+                yesPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+                // 创建"否"规则
+                ConditionalFormattingRule noRule = sheetCF.createConditionalFormattingRule("\"否\"=" + cellRef);
+                PatternFormatting noPattern = noRule.createPatternFormatting();
+                noPattern.setFillBackgroundColor(IndexedColors.ROSE.getIndex());
+                noPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+                // 应用规则到单元格
+                CellRangeAddress[] regions = {new CellRangeAddress(cell.getRowIndex(), cell.getRowIndex(),
+                    cell.getColumnIndex(), cell.getColumnIndex())};
+                sheetCF.addConditionalFormatting(regions, yesRule, noRule);
             }
         });
 
