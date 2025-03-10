@@ -11,6 +11,7 @@ import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -79,8 +80,8 @@ public class DatabaseService {
     private String rerunDatabases;
     
     // 存储断点续跑状态
-    private Set<String> processedDatabases = new HashSet<>();
-    private Set<String> processedTables = new HashSet<>();
+    private final Set<String> processedDatabases = new HashSet<>();
+    private final Set<String> processedTables = new HashSet<>();
 
     public DatabaseService(
             @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
@@ -793,9 +794,9 @@ public class DatabaseService {
         
         String outputPath = exportDirectory + File.separator + "表金额字段SUM比对-" 
                 + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()) + ".xlsx";
-        
-        // 将tableInfoMap转换为展开后的MoneyFieldSumInfo列表
-        List<MoneyFieldSumInfo> expandedSumInfoList = new ArrayList<>();
+
+        // 将tableInfoMap转换为展开后的MoneyFieldSumInfo列表 - 声明为最终变量
+        final List<MoneyFieldSumInfo> expandedSumInfoList;
         
         // 对表名进行字母排序
         List<String> sortedKeys = new ArrayList<>(tableInfoMap.keySet());
@@ -848,15 +849,13 @@ public class DatabaseService {
                 });
             }
         });
-        
-        // 按表名排序，并对每个表内的记录按金额字段名排序，然后添加到结果列表
-        tableNameGroupMap.keySet().stream()
-            .sorted()
-            .forEach(tableName -> {
-                List<MoneyFieldSumInfo> tableInfos = tableNameGroupMap.get(tableName);
-                tableInfos.sort(Comparator.comparing(MoneyFieldSumInfo::getSumField));
-                expandedSumInfoList.addAll(tableInfos);
-            });
+
+        // 创建并填充结果列表，按表名排序，同一表内按金额字段排序
+        expandedSumInfoList = tableNameGroupMap.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .flatMap(entry -> entry.getValue().stream()
+                        .sorted(Comparator.comparing(MoneyFieldSumInfo::getSumField)))
+                .collect(Collectors.toList());
         
         // 导出到Excel
         exportDynamicExcel(outputPath, expandedSumInfoList);
@@ -941,12 +940,35 @@ public class DatabaseService {
             Font headerFont = workbook.createFont();
             headerFont.setBold(true);
             headerStyle.setFont(headerFont);
+
+            // 创建"是"样式（绿色背景）
+            CellStyle yesStyle = workbook.createCellStyle();
+            yesStyle.setAlignment(HorizontalAlignment.CENTER);
+            yesStyle.setFillForegroundColor(IndexedColors.LIGHT_GREEN.getIndex());
+            yesStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            // 创建"否"样式（红色背景）
+            CellStyle noStyle = workbook.createCellStyle();
+            noStyle.setAlignment(HorizontalAlignment.CENTER);
+            noStyle.setFillForegroundColor(IndexedColors.ROSE.getIndex());
+            noStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             
             // 创建表头行
             Row headerRow = sheet.createRow(0);
             
             // 固定列的标题
-            String[] fixedHeaders = {"表名", "SCHEMA", "所在库", "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3", "金额字段", "SUM字段", "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3"};
+            String[] fixedHeaders = {
+                    "表名", "SCHEMA", "所在库",
+                    "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3",
+                    "金额字段", "SUM字段",
+                    "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
+                    "公式1: ORA==PV1+PV2+PV3",
+                    "公式2: ORA==PV1+PV2+PV3",
+                    "公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3",
+                    "公式4: ORA==PV1==PV2==PV3",
+                    "公式5: ORA==BASE==PV1==PV2==PV3",
+                    "公式6: ORA==PV1"
+            };
             
             // 创建表头
             IntStream.range(0, fixedHeaders.length).forEach(i -> {
@@ -990,6 +1012,83 @@ public class DatabaseService {
                         cell.setCellValue("");
                     }
                 });
+
+                // 计算公式列的单元格引用
+                // 注意：Excel单元格引用是从1开始的，而且是从A列开始的
+                int currentRowIndex = rowNum.get(); // 当前行
+
+                // SUM值所在单元格的列引用
+                String sumOraCell = "N" + currentRowIndex;          // SUM_ORA (14列)
+                String sumRlcmsBaseCell = "O" + currentRowIndex;    // SUM_RLCMS_BASE (15列)
+                String sumRlcmsPv1Cell = "P" + currentRowIndex;     // SUM_RLCMS_PV1 (16列)
+                String sumRlcmsPv2Cell = "Q" + currentRowIndex;     // SUM_RLCMS_PV2 (17列)
+                String sumRlcmsPv3Cell = "R" + currentRowIndex;     // SUM_RLCMS_PV3 (18列)
+                String sumBscopyPv1Cell = "S" + currentRowIndex;    // SUM_BSCOPY_PV1 (19列)
+                String sumBscopyPv2Cell = "T" + currentRowIndex;    // SUM_BSCOPY_PV2 (20列)
+                String sumBscopyPv3Cell = "U" + currentRowIndex;    // SUM_BSCOPY_PV3 (21列)
+
+                // 公式1: SUM_ORA == SUM_RLCMS_PV1 + SUM_RLCMS_PV2 + SUM_RLCMS_PV3
+                Cell formula1Cell = row.createCell(21);
+                formula1Cell.setCellFormula("IF(" + sumOraCell + "=(" + sumRlcmsPv1Cell + "+" + sumRlcmsPv2Cell + "+" + sumRlcmsPv3Cell + "),\"是\",\"否\")");
+
+                // 公式2: SUM_ORA == SUM_RLCMS_PV1 + SUM_RLCMS_PV2 + SUM_RLCMS_PV3
+                Cell formula2Cell = row.createCell(22);
+                formula2Cell.setCellFormula("IF(" + sumOraCell + "=(" + sumRlcmsPv1Cell + "+" + sumRlcmsPv2Cell + "+" + sumRlcmsPv3Cell + "),\"是\",\"否\")");
+
+                // 公式3: SUM_ORA == SUM_RLCMS_BASE == SUM_BSCOPY_PV1 == SUM_BSCOPY_PV2 == SUM_BSCOPY_PV3
+                Cell formula3Cell = row.createCell(23);
+                formula3Cell.setCellFormula("IF(AND(" +
+                        sumOraCell + "=" + sumRlcmsBaseCell + "," +
+                        sumRlcmsBaseCell + "=" + sumBscopyPv1Cell + "," +
+                        sumBscopyPv1Cell + "=" + sumBscopyPv2Cell + "," +
+                        sumBscopyPv2Cell + "=" + sumBscopyPv3Cell + "),\"是\",\"否\")");
+
+                // 公式4: SUM_ORA == SUM_RLCMS_PV1 == SUM_RLCMS_PV2 == SUM_RLCMS_PV3
+                Cell formula4Cell = row.createCell(24);
+                formula4Cell.setCellFormula("IF(AND(" +
+                        sumOraCell + "=" + sumRlcmsPv1Cell + "," +
+                        sumRlcmsPv1Cell + "=" + sumRlcmsPv2Cell + "," +
+                        sumRlcmsPv2Cell + "=" + sumRlcmsPv3Cell + "),\"是\",\"否\")");
+
+                // 公式5: SUM_ORA == SUM_RLCMS_BASE == SUM_RLCMS_PV1 == SUM_RLCMS_PV2 == SUM_RLCMS_PV3
+                Cell formula5Cell = row.createCell(25);
+                formula5Cell.setCellFormula("IF(AND(" +
+                        sumOraCell + "=" + sumRlcmsBaseCell + "," +
+                        sumRlcmsBaseCell + "=" + sumRlcmsPv1Cell + "," +
+                        sumRlcmsPv1Cell + "=" + sumRlcmsPv2Cell + "," +
+                        sumRlcmsPv2Cell + "=" + sumRlcmsPv3Cell + "),\"是\",\"否\")");
+
+                // 公式6: SUM_ORA == SUM_RLCMS_PV1
+                Cell formula6Cell = row.createCell(26);
+                formula6Cell.setCellFormula("IF(" + sumOraCell + "=" + sumRlcmsPv1Cell + ",\"是\",\"否\")");
+
+                // 为所有公式单元格添加条件格式
+                for (int i = 21; i <= 26; i++) {
+                    // 获取当前单元格
+                    Cell cell = row.getCell(i);
+
+                    // 创建引用区域字符串
+                    String cellRef = cell.getAddress().formatAsString();
+
+                    // 为此单元格添加条件格式规则
+                    SheetConditionalFormatting sheetCF = sheet.getSheetConditionalFormatting();
+
+                    // 创建"是"规则
+                    ConditionalFormattingRule yesRule = sheetCF.createConditionalFormattingRule("\"是\"=" + cellRef);
+                    PatternFormatting yesPattern = yesRule.createPatternFormatting();
+                    yesPattern.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
+                    yesPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+                    // 创建"否"规则
+                    ConditionalFormattingRule noRule = sheetCF.createConditionalFormattingRule("\"否\"=" + cellRef);
+                    PatternFormatting noPattern = noRule.createPatternFormatting();
+                    noPattern.setFillBackgroundColor(IndexedColors.ROSE.getIndex());
+                    noPattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
+
+                    // 应用规则到单元格
+                    CellRangeAddress[] regions = {new CellRangeAddress(cell.getRowIndex(), cell.getRowIndex(), cell.getColumnIndex(), cell.getColumnIndex())};
+                    sheetCF.addConditionalFormatting(regions, yesRule, noRule);
+                }
             });
             
             // 自动调整列宽
@@ -1261,6 +1360,9 @@ public class DatabaseService {
         
         // 将查询结果转换为导出格式 - 按表名分组处理数据
         Map<String, List<MoneyFieldSumInfo>> tableNameGroupMap = new HashMap<>();
+
+        // 声明结果变量
+        final List<MoneyFieldSumInfo> expandedSumInfoList;
         
         // 处理所有表的数据，按表名分组
         allTablesToQuery.forEach(tableName -> {
@@ -1311,7 +1413,7 @@ public class DatabaseService {
         });
         
         // 创建并填充结果列表，按表名排序，同一表内按金额字段排序
-        List<MoneyFieldSumInfo> expandedSumInfoList = tableNameGroupMap.entrySet().stream()
+        expandedSumInfoList = tableNameGroupMap.entrySet().stream()
             .sorted(Map.Entry.comparingByKey())
             .flatMap(entry -> entry.getValue().stream()
                 .sorted(Comparator.comparing(MoneyFieldSumInfo::getSumField)))
