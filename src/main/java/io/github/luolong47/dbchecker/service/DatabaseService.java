@@ -6,6 +6,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import io.github.luolong47.dbchecker.config.DbWhereConditionConfig;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 /**
  * 数据库服务类，用于测试多数据源
@@ -57,6 +60,7 @@ public class DatabaseService {
     private final JdbcTemplate bscopyPv1JdbcTemplate;
     private final JdbcTemplate bscopyPv2JdbcTemplate;
     private final JdbcTemplate bscopyPv3JdbcTemplate;
+    private final DbWhereConditionConfig whereConditionConfig;
     
     // 用户可配置的要包含的schema列表，使用逗号分隔
     @Value("${db.include.schemas:}")
@@ -98,7 +102,8 @@ public class DatabaseService {
             @Qualifier("rlcmsPv3JdbcTemplate") JdbcTemplate rlcmsPv3JdbcTemplate,
             @Qualifier("bscopyPv1JdbcTemplate") JdbcTemplate bscopyPv1JdbcTemplate,
             @Qualifier("bscopyPv2JdbcTemplate") JdbcTemplate bscopyPv2JdbcTemplate,
-            @Qualifier("bscopyPv3JdbcTemplate") JdbcTemplate bscopyPv3JdbcTemplate) {
+            @Qualifier("bscopyPv3JdbcTemplate") JdbcTemplate bscopyPv3JdbcTemplate,
+            DbWhereConditionConfig whereConditionConfig) {
         this.oraJdbcTemplate = oraJdbcTemplate;
         this.rlcmsBaseJdbcTemplate = rlcmsBaseJdbcTemplate;
         this.rlcmsPv1JdbcTemplate = rlcmsPv1JdbcTemplate;
@@ -107,6 +112,7 @@ public class DatabaseService {
         this.bscopyPv1JdbcTemplate = bscopyPv1JdbcTemplate;
         this.bscopyPv2JdbcTemplate = bscopyPv2JdbcTemplate;
         this.bscopyPv3JdbcTemplate = bscopyPv3JdbcTemplate;
+        this.whereConditionConfig = whereConditionConfig;
     }
 
     /**
@@ -336,6 +342,8 @@ public class DatabaseService {
                         
                         // 查询记录数
                         String countSql = "SELECT COUNT(*) FROM " + fullTableName;
+                        // 应用WHERE条件
+                        countSql = whereConditionConfig.applyCondition(countSql, dataSourceName, tableName);
                         log.debug("执行SQL: {}", countSql);
                         Long count = jdbcTemplate.queryForObject(countSql, Long.class);
                         tableInfo.setRecordCount(count != null ? count : 0L);
@@ -351,6 +359,9 @@ public class DatabaseService {
                             String sumSql = String.format("SELECT %s FROM %s",
                                 String.join(", ", sumExpressions),
                                 fullTableName);
+                            
+                            // 应用WHERE条件
+                            sumSql = whereConditionConfig.applyCondition(sumSql, dataSourceName, tableName);
                             
                             log.info("执行批量SUM查询: {}", sumSql);
                             
@@ -576,26 +587,23 @@ public class DatabaseService {
      */
     private void addTableInfoToMap(Map<String, TableMetaInfo> tableInfoMap, List<TableInfo> tables, String sourceName, JdbcTemplate jdbcTemplate) {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
-        for (TableInfo table : tables) {
-            // 创建唯一键，使用表名和schema，但使用一个不太可能出现在表名或schema中的分隔符
-            // 修改为使用#@#作为分隔符而不是|||
+        
+        tables.forEach(table -> {
+            // 创建唯一键，使用表名和schema，让表名排在前面有利于按表名排序
             String key = table.getTableName() + "#@#" + table.getSchema();
             
             // 获取或创建TableMetaInfo
             TableMetaInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableMetaInfo(table.getSchema()));
             
-            // 添加数据源
+            // 添加数据源和记录数
             metaInfo.addDataSource(sourceName);
-            
-            // 使用TableInfo中已获取的记录数
             metaInfo.setRecordCount(sourceName, table.getRecordCount());
             
             // 添加金额字段（从TableInfo直接获取）
             if (metaInfo.getMoneyFields().isEmpty() && !table.getMoneyFields().isEmpty()) {
                 try {
-                    for (String field : table.getMoneyFields()) {
-                        metaInfo.addMoneyField(field);
-                    }
+                    table.getMoneyFields().forEach(metaInfo::addMoneyField);
+                    
                     if (!table.getMoneyFields().isEmpty()) {
                         log.info("表 {}.{} 发现{}个金额字段: {}", 
                             table.getSchema(), table.getTableName(), 
@@ -606,19 +614,16 @@ public class DatabaseService {
                 }
             }
             
-            // 如果有金额字段求和信息，添加到TableMetaInfo的sumValues中
+            // 添加求和结果
             if (!table.getMoneySums().isEmpty()) {
-                for (Map.Entry<String, BigDecimal> entry : table.getMoneySums().entrySet()) {
-                    String fieldName = entry.getKey();
-                    BigDecimal sumValue = entry.getValue();
-                    
-                    // 使用TableMetaInfo的setMoneySum方法保存求和结果
+                table.getMoneySums().forEach((fieldName, sumValue) -> {
                     metaInfo.setMoneySum(sourceName, fieldName, sumValue);
                     log.debug("表 {}.{} 字段 {} 在数据源 {} 的SUM值为: {}", 
                         table.getSchema(), table.getTableName(), fieldName, sourceName, sumValue);
-                }
+                });
             }
-        }
+        });
+        
         log.info("{}的表信息处理完成", sourceName);
     }
     
@@ -839,8 +844,11 @@ public class DatabaseService {
         
         log.info("开始计算各表金额字段SUM值...");
         
+        // 创建一个临时Map用于按表名分组
+        Map<String, List<MoneyFieldSumInfo>> tableNameGroupMap = new HashMap<>();
+        
         // 使用TableMetaInfo中的求和结果，直接构建输出信息
-        for (String key : sortedKeys) {
+        sortedKeys.forEach(key -> {
             String[] parts = key.split("#@#", 2);
             String tableName = parts[0];
             
@@ -848,11 +856,12 @@ public class DatabaseService {
             
             // 对于每个表，如果有金额字段，则为每个金额字段创建一个MoneyFieldSumInfo
             if (!metaInfo.getMoneyFields().isEmpty()) {
+                // 对金额字段按字母排序
                 List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
                 Collections.sort(sortedMoneyFields);
                 
-                // 为每个金额字段创建MoneyFieldSumInfo
-                for (String moneyField : sortedMoneyFields) {
+                // 为每个金额字段创建MoneyFieldSumInfo并添加到对应表名的分组中
+                sortedMoneyFields.forEach(moneyField -> {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
                         tableName,
                         metaInfo.getSchema(),
@@ -862,23 +871,32 @@ public class DatabaseService {
                         moneyField
                     );
                     
-                    // 设置各数据源的记录数
-                    int index = 1;
-                    for (String dataSource : metaInfo.getDataSources()) {
+                    // 设置各数据源的记录数和SUM值
+                    IntStream.rangeClosed(1, metaInfo.getDataSources().size()).forEach(index -> {
+                        String dataSource = metaInfo.getDataSources().get(index - 1);
+                        // 设置记录数
                         Long count = metaInfo.getRecordCounts().getOrDefault(dataSource, 0L);
                         sumInfo.setCountValue(index, count);
                         
                         // 设置SUM值
                         BigDecimal sum = metaInfo.getMoneySum(dataSource, moneyField);
                         sumInfo.setSumValue(index, sum);
-                        
-                        index++;
-                    }
+                    });
                     
-                    expandedSumInfoList.add(sumInfo);
-                }
+                    // 添加到表名分组
+                    tableNameGroupMap.computeIfAbsent(tableName, k -> new ArrayList<>()).add(sumInfo);
+                });
             }
-        }
+        });
+        
+        // 按表名排序，并对每个表内的记录按金额字段名排序，然后添加到结果列表
+        tableNameGroupMap.keySet().stream()
+            .sorted()
+            .forEach(tableName -> {
+                List<MoneyFieldSumInfo> tableInfos = tableNameGroupMap.get(tableName);
+                tableInfos.sort(Comparator.comparing(MoneyFieldSumInfo::getSumField));
+                expandedSumInfoList.addAll(tableInfos);
+            });
         
         // 导出到Excel
         exportDynamicExcel(outputPath, expandedSumInfoList);
@@ -946,6 +964,10 @@ public class DatabaseService {
     private void exportDynamicExcel(String outputPath, List<MoneyFieldSumInfo> dataList) throws IOException {
         log.info("开始导出Excel: {}", outputPath);
         
+        // 确保数据按表名和金额字段正确排序
+        dataList.sort(Comparator.comparing(MoneyFieldSumInfo::getTableName)
+                .thenComparing(MoneyFieldSumInfo::getSumField));
+        
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("金额字段SUM结果");
             
@@ -965,53 +987,53 @@ public class DatabaseService {
             
             // 固定列的标题
             String[] fixedHeaders = {"表名", "SCHEMA", "所在库", "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3", "金额字段", "SUM字段", "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3"};
-            for (int i = 0; i < fixedHeaders.length; i++) {
+            
+            // 创建表头
+            IntStream.range(0, fixedHeaders.length).forEach(i -> {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(fixedHeaders[i]);
                 cell.setCellStyle(headerStyle);
-            }
+            });
             
             // 填充数据
-            int rowNum = 1;
-            for (MoneyFieldSumInfo info : dataList) {
-                Row row = sheet.createRow(rowNum++);
+            AtomicInteger rowNum = new AtomicInteger(1);
+            dataList.forEach(info -> {
+                Row row = sheet.createRow(rowNum.getAndIncrement());
                 
                 // 设置固定列的值
                 row.createCell(0).setCellValue(info.getTableName());
                 row.createCell(1).setCellValue(info.getSchema());
                 row.createCell(2).setCellValue(info.getDataSources());
+                
                 // 设置COUNT值
-                for (int i = 1; i <= 8; i++) {
+                IntStream.rangeClosed(1, 8).forEach(i -> {
                     Long countValue = info.getCountValue(i);
+                    Cell cell = row.createCell(2 + i);
                     if (countValue != null) {
-                        Cell cell = row.createCell(2 + i);
                         cell.setCellValue(countValue);
                     } else {
-                        row.createCell(2 + i).setCellValue("");
+                        cell.setCellValue("");
                     }
-                }
+                });
 
                 row.createCell(11).setCellValue(info.getMoneyFields());
                 row.createCell(12).setCellValue(info.getSumField());
                 
-                
                 // 设置SUM值（使用金额格式）
-                for (int i = 1; i <= 8; i++) {
+                IntStream.rangeClosed(1, 8).forEach(i -> {
                     BigDecimal sumValue = info.getSumValue(i);
+                    Cell cell = row.createCell(12 + i);
                     if (sumValue != null) {
-                        Cell cell = row.createCell(12 + i);
                         cell.setCellValue(sumValue.doubleValue());
                         cell.setCellStyle(numberStyle);
                     } else {
-                        row.createCell(12 + i).setCellValue("");
+                        cell.setCellValue("");
                     }
-                }
-            }
+                });
+            });
             
             // 自动调整列宽
-            for (int i = 0; i < fixedHeaders.length; i++) {
-                sheet.autoSizeColumn(i);
-            }
+            IntStream.range(0, fixedHeaders.length).forEach(sheet::autoSizeColumn);
             
             // 写入文件
             try (FileOutputStream fileOut = new FileOutputStream(outputPath)) {
@@ -1222,10 +1244,7 @@ public class DatabaseService {
         
         List<CompletableFuture<Void>> tableFutures = new ArrayList<>();
         
-        for (Map.Entry<String, JdbcTemplate> entry : datasources.entrySet()) {
-            String dataSourceName = entry.getKey();
-            JdbcTemplate jdbcTemplate = entry.getValue();
-            
+        datasources.forEach((dataSourceName, jdbcTemplate) -> {
             CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> {
                 List<TableInfo> tables = getTablesInfoFromDataSource(jdbcTemplate, dataSourceName);
                 log.info("从{}数据源获取到{}个表", dataSourceName, tables.size());
@@ -1234,20 +1253,17 @@ public class DatabaseService {
             });
             
             tableFutures.add(future);
-        }
+        });
         
         // 等待所有获取表信息的任务完成
         CompletableFuture.allOf(tableFutures.toArray(new CompletableFuture[0])).join();
-        
+
         // 汇总所有表信息
         Map<String, TableMetaInfo> tableInfoMap = new HashMap<>();
-        for (Map.Entry<String, List<TableInfo>> entry : allTableInfo.entrySet()) {
-            String dataSourceName = entry.getKey();
-            List<TableInfo> tables = entry.getValue();
+        allTableInfo.forEach((dataSourceName, tables) -> {
             JdbcTemplate jdbcTemplate = datasources.get(dataSourceName);
-            
             addTableInfoToMap(tableInfoMap, tables, dataSourceName, jdbcTemplate);
-        }
+        });
         
         log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
         
@@ -1255,19 +1271,16 @@ public class DatabaseService {
         List<String> allTablesToQuery = new ArrayList<>();
         Map<String, String> tableToSchemaMap = new HashMap<>(); // 保存表对应的schema
         
-        for (Map.Entry<String, TableMetaInfo> entry : tableInfoMap.entrySet()) {
-            String[] parts = entry.getKey().split("#@#", 2);
+        tableInfoMap.forEach((key, metaInfo) -> {
+            String[] parts = key.split("#@#", 2);
             String tableName = parts[0];
-            TableMetaInfo metaInfo = entry.getValue();
             
             // 只查询有金额字段的表
-            if (!metaInfo.getMoneyFields().isEmpty()) {
-                if (!allTablesToQuery.contains(tableName)) {
-                    allTablesToQuery.add(tableName);
-                    tableToSchemaMap.put(tableName, metaInfo.getSchema());
-                }
+            if (!metaInfo.getMoneyFields().isEmpty() && !allTablesToQuery.contains(tableName)) {
+                allTablesToQuery.add(tableName);
+                tableToSchemaMap.put(tableName, metaInfo.getSchema());
             }
-        }
+        });
         
         log.info("需要查询的表总数: {}", allTablesToQuery.size());
         
@@ -1285,56 +1298,63 @@ public class DatabaseService {
         String outputPath = exportDirectory + File.separator + "并发查询SUM比对-" 
                 + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()) + ".xlsx";
         
-        // 将查询结果转换为导出格式
-        List<MoneyFieldSumInfo> expandedSumInfoList = new ArrayList<>();
+        // 将查询结果转换为导出格式 - 按表名分组处理数据
+        Map<String, List<MoneyFieldSumInfo>> tableNameGroupMap = new HashMap<>();
         
-        for (String tableName : allTablesToQuery) {
+        // 处理所有表的数据，按表名分组
+        allTablesToQuery.forEach(tableName -> {
             String schema = tableToSchemaMap.get(tableName);
             TableMetaInfo metaInfo = tableInfoMap.get(tableName + "#@#" + schema);
             
             if (metaInfo == null || metaInfo.getMoneyFields().isEmpty()) {
-                continue;
+                return; // 跳过没有金额字段的表
             }
             
-            // 对表的金额字段按字母排序
-            List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
-            Collections.sort(sortedMoneyFields);
-            
-            // 为每个金额字段创建一条记录
-            for (String moneyField : sortedMoneyFields) {
-                MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
-                    tableName,
-                    schema,
-                    String.join(" | ", metaInfo.getDataSources()),
-                    metaInfo.getFormattedRecordCounts(),
-                    metaInfo.getFormattedMoneyFields(),
-                    moneyField
-                );
-                
-                // 设置各数据源的记录数和SUM值
-                for (int i = 0; i < datasources.size(); i++) {
-                    String dataSourceName = (String) datasources.keySet().toArray()[i];
+            // 对金额字段排序并创建MoneyFieldSumInfo
+            metaInfo.getMoneyFields().stream()
+                .sorted()
+                .forEach(moneyField -> {
+                    MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
+                        tableName,
+                        schema,
+                        String.join(" | ", metaInfo.getDataSources()),
+                        metaInfo.getFormattedRecordCounts(),
+                        metaInfo.getFormattedMoneyFields(),
+                        moneyField
+                    );
                     
-                    // 设置记录数
-                    if (metaInfo.getDataSources().contains(dataSourceName)) {
-                        Long count = metaInfo.getRecordCounts().getOrDefault(dataSourceName, 0L);
-                        sumInfo.setCountValue(i+1, count);
+                    // 设置各数据源的记录数和SUM值
+                    IntStream.range(0, datasources.size()).forEach(i -> {
+                        String dataSourceName = (String) datasources.keySet().toArray()[i];
                         
-                        // 设置SUM值
-                        Map<String, Map<String, BigDecimal>> dataSourceResults = queryResults.get(dataSourceName);
-                        if (dataSourceResults != null) {
-                            Map<String, BigDecimal> tableSums = dataSourceResults.get(tableName);
-                            if (tableSums != null) {
-                                BigDecimal sum = tableSums.getOrDefault(moneyField, BigDecimal.ZERO);
-                                sumInfo.setSumValue(i+1, sum);
+                        // 设置记录数
+                        if (metaInfo.getDataSources().contains(dataSourceName)) {
+                            Long count = metaInfo.getRecordCounts().getOrDefault(dataSourceName, 0L);
+                            sumInfo.setCountValue(i+1, count);
+                            
+                            // 设置SUM值
+                            Map<String, Map<String, BigDecimal>> dataSourceResults = queryResults.get(dataSourceName);
+                            if (dataSourceResults != null) {
+                                Map<String, BigDecimal> tableSums = dataSourceResults.get(tableName);
+                                if (tableSums != null) {
+                                    BigDecimal sum = tableSums.getOrDefault(moneyField, BigDecimal.ZERO);
+                                    sumInfo.setSumValue(i+1, sum);
+                                }
                             }
                         }
-                    }
-                }
-                
-                expandedSumInfoList.add(sumInfo);
-            }
-        }
+                    });
+                    
+                    // 添加到表名分组
+                    tableNameGroupMap.computeIfAbsent(tableName, k -> new ArrayList<>()).add(sumInfo);
+                });
+        });
+        
+        // 创建并填充结果列表，按表名排序，同一表内按金额字段排序
+        List<MoneyFieldSumInfo> expandedSumInfoList = tableNameGroupMap.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .flatMap(entry -> entry.getValue().stream()
+                .sorted(Comparator.comparing(MoneyFieldSumInfo::getSumField)))
+            .collect(Collectors.toList());
         
         // 导出到Excel
         exportDynamicExcel(outputPath, expandedSumInfoList);

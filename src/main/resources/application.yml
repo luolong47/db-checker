@@ -89,8 +89,10 @@ spring:
 # 日志配置
 logging:
   level:
-    io.github.luolong47.dbchecker: INFO
+    io.github.luolong47.dbchecker: DEBUG
     org.springframework.jdbc.core: DEBUG
+    org.springframework.boot.context.config: TRACE
+    org.springframework.boot.context.properties: TRACE
 
 # 数据库表排除与包含配置
 db:
@@ -109,14 +111,14 @@ db:
     # 注意：要包含其他schema中的表，必须使用表名@SCHEMA格式
     tables: PRODUCTS,ORDERS,USERS,SPECIAL_TABLE@OTHER_SCHEMA
     # 运行模式配置
-    run:
-      # 运行模式：RESUME(断点续跑，默认)、FULL(全量重跑)、DB(指定数据库重跑)
-      mode: RESUME
-    resume:
-        # 断点续跑状态文件路径
-      file: ./export/resume_state.json
-      # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
-    rerun:
+  run:
+    # 运行模式：RESUME(断点续跑，默认)、FULL(全量重跑)、DB(指定数据库重跑)
+    mode: FULL
+  resume:
+    # 断点续跑状态文件路径
+    file: ./export/resume_state.json
+  # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
+  rerun:
       databases:
   where:
     ora:

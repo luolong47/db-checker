@@ -9,7 +9,7 @@
     </parent>
     <groupId>io.github.luolong47</groupId>
     <artifactId>db-checker</artifactId>
-    <version>0.6.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <name>db-checker</name>
 
     <properties>
