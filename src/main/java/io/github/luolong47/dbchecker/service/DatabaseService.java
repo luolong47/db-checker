@@ -2,6 +2,7 @@ package io.github.luolong47.dbchecker.service;
 
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
@@ -286,6 +287,10 @@ public class DatabaseService {
 
             while (tablesResultSet.next()) {
                 String tableName = tablesResultSet.getString("TABLE_NAME");
+                // 数字开头的表名要加引号
+                if (ReUtil.isMatch("^\\d+.*", tableName)) {
+                    tableName = StrUtil.format("\"{}\"", tableName);
+                }
                 String tableSchema = tablesResultSet.getString("TABLE_SCHEM");
 
                 // 判断是否应该排除该表或已处理过该表
