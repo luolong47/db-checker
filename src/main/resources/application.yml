@@ -112,6 +112,15 @@ db:
     run:
       # 运行模式：RESUME(断点续跑，默认)、FULL(全量重跑)、DB(指定数据库重跑)
       mode: RESUME
+    resume:
+        # 断点续跑状态文件路径
+      file: ./export/resume_state.json
       # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
-      rerun:
-        databases: 
+    rerun:
+      databases:
+  where:
+    ora:
+      test1: "amount1 = 1000.123"
+      users: "username = 'user1'"
+    rlcms-pv1:
+      orders: "user_id = 1"

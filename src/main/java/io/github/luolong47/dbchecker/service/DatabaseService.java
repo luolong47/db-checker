@@ -114,7 +114,7 @@ public class DatabaseService {
      */
     @PostConstruct
     public void initResumeState() {
-        File file = new File(resumeFile);
+        File file = FileUtil.file(resumeFile);
         if ("RESUME".equalsIgnoreCase(runMode) && file.exists()) {
             try {
                 String content = FileUtil.readUtf8String(file);
