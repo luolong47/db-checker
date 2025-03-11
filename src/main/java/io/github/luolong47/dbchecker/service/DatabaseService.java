@@ -17,6 +17,7 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -79,6 +80,9 @@ public class DatabaseService {
     private final Set<String> processedDatabases = new HashSet<>();
     private final Set<String> processedTables = new HashSet<>();
 
+    // 存储所有表的元数据信息，用于断点续跑时恢复状态
+    private final Map<String, TableMetaInfo> tableInfoMap = new HashMap<>();
+
     public DatabaseService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
         @Qualifier("rlcmsBaseJdbcTemplate") JdbcTemplate rlcmsBaseJdbcTemplate,
@@ -105,44 +109,123 @@ public class DatabaseService {
      */
     @PostConstruct
     public void initResumeState() {
-        // 检查includeTables是否已设置
-        if (StrUtil.isBlank(includeTables) || StrUtil.isBlank(includeSchemas)) {
-            throw new IllegalArgumentException("db.include.tables或db.include.schemas未设置，这是一个必填项。请在application.yml中指定需要处理的表列表。");
+        log.info("初始化数据库服务...");
+        log.info("配置信息 - 导出目录: {}", exportDirectory);
+        log.info("配置信息 - 运行模式: {}", runMode);
+        log.info("配置信息 - 断点续跑文件: {}", resumeFile);
+        log.info("配置信息 - 包含表: {}", includeTables);
+        log.info("配置信息 - 包含Schema: {}", includeSchemas);
+
+        // 检查必要的配置项
+        if (StrUtil.isBlank(includeTables)) {
+            throw new IllegalArgumentException("db.include.tables未设置，这是一个必填项。请在application.yml中指定需要处理的表列表。");
         }
 
-        File file = FileUtil.file(resumeFile);
-        if ("RESUME".equalsIgnoreCase(runMode) && file.exists()) {
+        // 清空当前状态，准备重新加载
+        processedDatabases.clear();
+        processedTables.clear();
+        tableInfoMap.clear();
+
+        // 只在断点续跑模式下加载状态
+        if ("RESUME".equalsIgnoreCase(runMode)) {
             try {
-                String content = FileUtil.readUtf8String(file);
-                JSONObject json = JSONUtil.parseObj(content);
-                JSONArray dbs = json.getJSONArray("processedDatabases");
-                JSONArray tables = json.getJSONArray("processedTables");
+                File file = FileUtil.file(resumeFile);
+                if (file.exists()) {
+                    log.info("检测到断点续跑文件: {}", resumeFile);
 
-                if (dbs != null) {
-                    for (int i = 0; i < dbs.size(); i++) {
-                        processedDatabases.add(dbs.getStr(i));
+                    // 读取JSON文件
+                    String jsonStr = FileUtil.readUtf8String(file);
+                    JSONObject state = JSONUtil.parseObj(jsonStr);
+
+                    // 恢复已处理的数据库列表
+                    JSONArray databasesArray = state.getJSONArray("databases");
+                    if (databasesArray != null) {
+                        for (int i = 0; i < databasesArray.size(); i++) {
+                            processedDatabases.add(databasesArray.getStr(i));
+                        }
                     }
-                }
 
-                if (tables != null) {
-                    for (int i = 0; i < tables.size(); i++) {
-                        processedTables.add(tables.getStr(i));
+                    // 恢复已处理的表列表
+                    JSONArray tablesArray = state.getJSONArray("tables");
+                    if (tablesArray != null) {
+                        for (int i = 0; i < tablesArray.size(); i++) {
+                            processedTables.add(tablesArray.getStr(i));
+                        }
                     }
-                }
 
-                log.info("已从{}加载断点续跑状态，已处理{}个数据库，{}个表",
-                    resumeFile, processedDatabases.size(), processedTables.size());
+                    // 恢复表信息数据
+                    JSONObject tableInfoObj = state.getJSONObject("tableInfo");
+                    if (tableInfoObj != null) {
+                        for (String tableName : tableInfoObj.keySet()) {
+                            JSONObject tableData = tableInfoObj.getJSONObject(tableName);
+                            if (tableData != null) {
+                                // 创建新的TableMetaInfo对象
+                                TableMetaInfo metaInfo = new TableMetaInfo();
+
+                                // 恢复数据源列表
+                                JSONArray dataSources = tableData.getJSONArray("dataSources");
+                                if (dataSources != null) {
+                                    for (int i = 0; i < dataSources.size(); i++) {
+                                        metaInfo.addDataSource(dataSources.getStr(i));
+                                    }
+                                }
+
+                                // 恢复记录数
+                                JSONObject recordCounts = tableData.getJSONObject("recordCounts");
+                                if (recordCounts != null) {
+                                    for (String ds : recordCounts.keySet()) {
+                                        metaInfo.setRecordCount(ds, recordCounts.getLong(ds));
+                                    }
+                                }
+
+                                // 恢复金额字段
+                                JSONArray moneyFields = tableData.getJSONArray("moneyFields");
+                                if (moneyFields != null) {
+                                    for (int i = 0; i < moneyFields.size(); i++) {
+                                        metaInfo.addMoneyField(moneyFields.getStr(i));
+                                    }
+                                }
+
+                                // 恢复金额SUM值
+                                JSONObject moneySums = tableData.getJSONObject("moneySums");
+                                if (moneySums != null) {
+                                    for (String ds : moneySums.keySet()) {
+                                        JSONObject fieldSums = moneySums.getJSONObject(ds);
+                                        if (fieldSums != null) {
+                                            for (String field : fieldSums.keySet()) {
+                                                String sumStr = fieldSums.getStr(field);
+                                                if (sumStr != null) {
+                                                    try {
+                                                        BigDecimal sum = new BigDecimal(sumStr);
+                                                        metaInfo.setMoneySum(ds, field, sum);
+                                                    } catch (NumberFormatException e) {
+                                                        log.warn("恢复金额字段SUM值时出错: {}字段{}的值{}不是有效的数值",
+                                                            ds, field, sumStr);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 将恢复的元数据添加到表信息映射
+                                tableInfoMap.put(tableName, metaInfo);
+                            }
+                        }
+                    }
+
+                    log.info("成功从断点续跑文件恢复状态，已处理数据库: {}，已处理表: {}，表信息数: {}",
+                        processedDatabases.size(), processedTables.size(), tableInfoMap.size());
+                } else {
+                    log.info("没有找到断点续跑文件，将从头开始处理");
+                }
             } catch (Exception e) {
-                log.error("加载断点续跑状态出错: {}", e.getMessage(), e);
-                // 出错时重置状态，从头开始
-                processedDatabases.clear();
-                processedTables.clear();
+                log.error("读取断点续跑文件时出错: {}", e.getMessage(), e);
             }
+        } else if ("FULL".equalsIgnoreCase(runMode)) {
+            log.info("当前为全量处理模式，忽略断点续跑文件");
         } else {
-            log.info("运行模式为{}，将{}进行处理",
-                runMode, "RESUME".equalsIgnoreCase(runMode) ? "继续上次未完成的" : "重新");
-            processedDatabases.clear();
-            processedTables.clear();
+            log.info("当前为自定义处理模式: {}", runMode);
         }
     }
 
@@ -152,12 +235,52 @@ public class DatabaseService {
     private void saveResumeState() {
         try {
             JSONObject json = new JSONObject();
-            json.set("processedDatabases", processedDatabases);
-            json.set("processedTables", processedTables);
+            // 保存已处理的数据库和表列表
+            json.set("databases", processedDatabases);
+            json.set("tables", processedTables);
             json.set("lastUpdated", DateUtil.now());
 
+            // 序列化表信息
+            if (!tableInfoMap.isEmpty()) {
+                Map<String, Object> serializedTableInfo = new HashMap<>();
+
+                // 遍历并序列化每个表的元数据
+                for (Map.Entry<String, TableMetaInfo> entry : tableInfoMap.entrySet()) {
+                    Map<String, Object> tableData = new HashMap<>();
+                    TableMetaInfo metaInfo = entry.getValue();
+
+                    // 保存数据源列表
+                    tableData.put("dataSources", metaInfo.getDataSources());
+
+                    // 保存记录数
+                    tableData.put("recordCounts", metaInfo.getRecordCounts());
+
+                    // 保存金额字段
+                    tableData.put("moneyFields", new ArrayList<>(metaInfo.getMoneyFields()));
+
+                    // 保存金额SUM值
+                    Map<String, Map<String, String>> moneySumsStr = new HashMap<>();
+                    for (Map.Entry<String, Map<String, BigDecimal>> dsEntry : metaInfo.getMoneySums().entrySet()) {
+                        Map<String, String> fieldSums = new HashMap<>();
+                        for (Map.Entry<String, BigDecimal> sumEntry : dsEntry.getValue().entrySet()) {
+                            if (sumEntry.getValue() != null) {
+                                fieldSums.put(sumEntry.getKey(), sumEntry.getValue().toString());
+                            }
+                        }
+                        moneySumsStr.put(dsEntry.getKey(), fieldSums);
+                    }
+                    tableData.put("moneySums", moneySumsStr);
+
+                    serializedTableInfo.put(entry.getKey(), tableData);
+                }
+
+                json.set("tableInfo", serializedTableInfo);
+            }
+
+            // 写入文件
             FileUtil.writeUtf8String(json.toString(), resumeFile);
-            log.info("已保存断点续跑状态到{}", resumeFile);
+            log.info("已保存断点续跑状态到{}，包含{}个数据库和{}个表的信息",
+                resumeFile, processedDatabases.size(), processedTables.size());
         } catch (Exception e) {
             log.error("保存断点续跑状态出错: {}", e.getMessage(), e);
         }
@@ -203,13 +326,12 @@ public class DatabaseService {
      * 检查表是否应该处理（根据运行模式和已处理状态）
      *
      * @param tableName      表名
-     * @param schema         表所在的schema
      * @param dataSourceName 数据源名称
      * @return 是否应该处理
      */
-    private boolean shouldProcessTable(String tableName, String schema, String dataSourceName) {
-        // 标识符：数据源名称 + schema + 表名
-        String tableKey = StrUtil.format("{}|{}|{}", dataSourceName, StrUtil.emptyToDefault(schema, ""), tableName);
+    private boolean shouldProcessTable(String tableName, String dataSourceName) {
+        // 标识符：数据源名称 + 表名
+        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
 
         // 如果是全量重跑，总是处理
         if (StrUtil.equalsIgnoreCase("FULL", runMode)) {
@@ -248,14 +370,10 @@ public class DatabaseService {
 
     /**
      * 标记表为已处理
-     *
-     * @param tableName      表名
-     * @param schema         表所在的schema
-     * @param dataSourceName 数据源名称
      */
-    private void markTableProcessed(String tableName, String schema, String dataSourceName) {
-        // 标识符：数据源名称 + schema + 表名
-        String tableKey = StrUtil.format("{}|{}|{}", dataSourceName, StrUtil.emptyToDefault(schema, ""), tableName);
+    private void markTableProcessed(String tableName, String dataSourceName) {
+        // 标识符：数据源名称 + 表名
+        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
         processedTables.add(tableKey);
 
         // 每处理10个表保存一次状态，避免频繁IO
@@ -293,17 +411,17 @@ public class DatabaseService {
 
                 // 判断是否应该排除该表或已处理过该表
                 if (shouldExcludeTable(tableName, tableSchema) ||
-                    !shouldProcessTable(tableName, tableSchema, dataSourceName)) {
+                    !shouldProcessTable(tableName, dataSourceName)) {
                     continue;
                 }
 
-                TableInfo tableInfo = new TableInfo(tableName, tableSchema != null ? tableSchema : "");
+                TableInfo tableInfo = new TableInfo(tableName);
                 tableInfo.setDataSourceName(dataSourceName);
 
                 // 获取金额字段并添加到TableInfo中
                 try {
                     // 获取列信息
-                    try (ResultSet columns = metaData.getColumns(null, tableSchema, tableName, null)) {
+                    try (ResultSet columns = metaData.getColumns(null, null, tableName, null)) {
                         while (columns.next()) {
                             String columnName = columns.getString("COLUMN_NAME");
                             int dataType = columns.getInt("DATA_TYPE");
@@ -312,8 +430,8 @@ public class DatabaseService {
                             // 判断是否为金额字段：数值型且小数位不为0
                             if (isNumericType(dataType) && decimalDigits > 0) {
                                 tableInfo.getMoneyFields().add(columnName);
-                                log.debug("发现金额字段: {}.{}.{}, 类型: {}, 小数位: {}",
-                                    tableSchema, tableName, columnName, dataType, decimalDigits);
+                                log.debug("发现金额字段: {}.{}, 类型: {}, 小数位: {}",
+                                    tableName, columnName, dataType, decimalDigits);
                             }
                         }
                     }
@@ -324,13 +442,8 @@ public class DatabaseService {
 
                     // 获取表记录数
                     try {
-                        // 拼接带Schema的完整表名
-                        String fullTableName = StrUtil.isNotEmpty(tableSchema)
-                            ? StrUtil.format("{}.{}", tableSchema, tableName)
-                            : tableName;
-
                         // 查询记录数
-                        String countSql = StrUtil.format("SELECT COUNT(*) FROM {}", fullTableName);
+                        String countSql = StrUtil.format("SELECT COUNT(*) FROM {}", tableName);
                         // 应用WHERE条件
                         countSql = whereConditionConfig.applyCondition(countSql, dataSourceName, tableName);
                         log.debug("执行SQL: {}", countSql);
@@ -347,7 +460,7 @@ public class DatabaseService {
 
                             String sumSql = StrUtil.format("SELECT {} FROM {}",
                                 StrUtil.join(", ", sumExpressions),
-                                fullTableName);
+                                tableName);
 
                             // 应用WHERE条件
                             sumSql = whereConditionConfig.applyCondition(sumSql, dataSourceName, tableName);
@@ -369,20 +482,20 @@ public class DatabaseService {
                                     }
                                 }
                                 tableInfo.getMoneySums().put(fieldName, decimalValue != null ? decimalValue : BigDecimal.ZERO);
-                                log.debug("表 {}.{} 字段 {} 的SUM值为: {}", tableSchema, tableName, fieldName, decimalValue);
+                                log.debug("表 {} 字段 {} 的SUM值为: {}", tableName, fieldName, decimalValue);
                             }
                         }
-
+                        tables.add(tableInfo);
                         // 标记该表为已处理
-                        markTableProcessed(tableName, tableSchema, dataSourceName);
+                        markTableProcessed(tableName, dataSourceName);
+                    } catch (BadSqlGrammarException e) {
+                        log.error("获取表[{}]的记录数或SUM值时出错: {}", tableName, e.getMessage());
                     } catch (Exception e) {
                         log.error("获取表[{}]的记录数或SUM值时出错: {}", tableName, e.getMessage(), e);
                     }
                 } catch (SQLException e) {
                     log.error("获取表[{}]的金额字段时出错: {}", tableName, e.getMessage(), e);
                 }
-
-                tables.add(tableInfo);
             }
 
             tablesResultSet.close();
@@ -411,25 +524,24 @@ public class DatabaseService {
             return true;
         }
 
-        boolean matchTable = StrUtil.split(includeTables, ",").stream()
+        return !StrUtil.split(includeTables, ",").stream()
             .map(String::trim)
             .map(e -> StrUtil.split(e, "@").stream().findFirst().orElse(""))
             .anyMatch(e -> StrUtil.equals(tableName, e));
-        return !matchTable;
     }
 
     /**
-     * 将表信息添加到映射中，使用表名+SCHEMA作为唯一标识
+     * 将表信息添加到映射中，使用表名作为唯一标识
      */
     private void addTableInfoToMap(Map<String, TableMetaInfo> tableInfoMap, List<TableInfo> tables, String sourceName) {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
 
         tables.forEach(table -> {
-            // 组合键: tableName#@#schema
-            String key = StrUtil.format("{}#@#{}", table.getTableName(), table.getSchema());
+            // 使用表名作为键，不再包含schema
+            String key = table.getTableName();
 
-            // 获取或创建TableMetaInfo
-            TableMetaInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableMetaInfo(table.getSchema()));
+            // 获取或创建TableMetaInfo，不再传入schema
+            TableMetaInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableMetaInfo());
 
             // 添加数据源和记录数
             metaInfo.addDataSource(sourceName);
@@ -441,12 +553,12 @@ public class DatabaseService {
                     table.getMoneyFields().forEach(metaInfo::addMoneyField);
 
                     if (!table.getMoneyFields().isEmpty()) {
-                        log.info("表 {}.{} 发现{}个金额字段: {}",
-                            table.getSchema(), table.getTableName(),
+                        log.info("表 {} 发现{}个金额字段: {}",
+                            table.getTableName(),
                             table.getMoneyFields().size(), StrUtil.join(", ", table.getMoneyFields()));
                     }
                 } catch (Exception e) {
-                    log.error("处理表 {}.{} 的金额字段时出错: {}", table.getSchema(), table.getTableName(), e.getMessage(), e);
+                    log.error("处理表 {} 的金额字段时出错: {}", table.getTableName(), e.getMessage(), e);
                 }
             }
 
@@ -454,8 +566,8 @@ public class DatabaseService {
             if (!table.getMoneySums().isEmpty()) {
                 table.getMoneySums().forEach((fieldName, sumValue) -> {
                     metaInfo.setMoneySum(sourceName, fieldName, sumValue);
-                    log.debug("表 {}.{} 字段 {} 在数据源 {} 的SUM值为: {}",
-                        table.getSchema(), table.getTableName(), fieldName, sourceName, sumValue);
+                    log.debug("表 {} 字段 {} 在数据源 {} 的SUM值为: {}",
+                        table.getTableName(), fieldName, sourceName, sumValue);
                 });
             }
         });
@@ -526,17 +638,26 @@ public class DatabaseService {
     }
 
     /**
-     * 导出金额字段SUM值到Excel
+     * 导出金额字段的SUM值到Excel文件
      */
     public void exportMoneyFieldSumToExcel() throws IOException {
         log.info("当前运行模式: {}", runMode);
         if (!StrUtil.isEmpty(rerunDatabases)) {
             log.info("指定重跑数据库: {}", rerunDatabases);
         }
-        log.info("开始收集表信息...");
 
-        // 创建一个Map存储表的基本信息
-        Map<String, TableMetaInfo> tableInfoMap = new HashMap<>();
+        // 检查是否已从断点续跑文件恢复了表信息
+        boolean hasRestoredTableInfo = !tableInfoMap.isEmpty();
+
+        if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode)) {
+            log.info("已从断点续跑文件恢复{}个表的信息，将继续处理未完成的数据库和表", tableInfoMap.size());
+        } else {
+            log.info("开始收集表信息...");
+            // 如果没有恢复数据或不是断点续跑模式，则清空已有的表信息
+            if (!hasRestoredTableInfo || !"RESUME".equalsIgnoreCase(runMode)) {
+                tableInfoMap.clear();
+            }
+        }
 
         // 获取需要处理的数据库
         Map<String, JdbcTemplate> databasesToProcess = getDatabasesToProcess();
@@ -548,6 +669,12 @@ public class DatabaseService {
         for (Map.Entry<String, JdbcTemplate> entry : databasesToProcess.entrySet()) {
             String dbName = entry.getKey();
             JdbcTemplate jdbcTemplate = entry.getValue();
+
+            // 如果数据库已经处理过且从断点续跑恢复了数据，则跳过
+            if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode) && processedDatabases.contains(dbName)) {
+                log.info("数据库[{}]已在上次运行中处理，跳过", dbName);
+                continue;
+            }
 
             CompletableFuture<List<TableInfo>> future = CompletableFuture.supplyAsync(() -> {
                 List<TableInfo> tables = getTablesInfoFromDataSource(jdbcTemplate, dbName);
@@ -571,6 +698,9 @@ public class DatabaseService {
 
                 // 添加表信息到映射
                 addTableInfoToMap(tableInfoMap, tables, dataSourceName);
+
+                // 及时保存状态
+                saveResumeState();
             } catch (Exception e) {
                 log.error("获取表信息时出错: {}", e.getMessage(), e);
             }
@@ -600,16 +730,15 @@ public class DatabaseService {
 
         // 使用TableMetaInfo中的求和结果，直接构建输出信息
         sortedKeys.forEach(key -> {
-            List<String> parts = StrUtil.split(key, "#@#");
-            String tableName = parts.get(0);
-            String schema = parts.get(1);
+            // 移除对schema的依赖，直接使用表名作为键
+            String tableName = key;
 
             TableMetaInfo metaInfo = tableInfoMap.get(key);
 
             // 创建一个默认的MoneyFieldSumInfo，即使没有金额字段
             MoneyFieldSumInfo defaultSumInfo = new MoneyFieldSumInfo(
                 tableName,
-                schema,
+                "",  // 空字符串代替schema
                 StrUtil.join(" | ", metaInfo.getDataSources()),
                 metaInfo.getFormattedRecordCounts(),
                 metaInfo.getMoneyFields().isEmpty() ? "" : metaInfo.getFormattedMoneyFields(),
@@ -636,7 +765,7 @@ public class DatabaseService {
                 sortedMoneyFields.forEach(moneyField -> {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
                         tableName,
-                        schema,
+                        "",  // 空字符串代替schema
                         StrUtil.join(" | ", metaInfo.getDataSources()),
                         metaInfo.getFormattedRecordCounts(),
                         metaInfo.getFormattedMoneyFields(),
@@ -706,9 +835,9 @@ public class DatabaseService {
         headerFont.setBold(true);
         headerStyle.setFont(headerFont);
 
-        // 固定列的标题
+        // 固定列的标题（移除SCHEMA列）
         String[] fixedHeaders = {
-            "表名", "SCHEMA", "所在库",
+            "表名", "所在库",
             "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3",
             "金额字段", "SUM字段",
             "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
@@ -731,13 +860,12 @@ public class DatabaseService {
 
         // 设置样式
         writer.setColumnWidth(0, 20);  // 表名列宽
-        writer.setColumnWidth(1, 20);  // SCHEMA列宽
-        writer.setColumnWidth(2, 25);  // 所在库列宽
-        writer.setColumnWidth(11, 25); // 金额字段列宽
-        writer.setColumnWidth(12, 20); // SUM字段列宽
+        writer.setColumnWidth(1, 25);  // 所在库列宽
+        writer.setColumnWidth(10, 25); // 金额字段列宽
+        writer.setColumnWidth(11, 20); // SUM字段列宽
 
         // 设置金额列的宽度
-        for (int i = 13; i <= 20; i++) {
+        for (int i = 12; i <= 19; i++) {
             writer.setColumnWidth(i, 20);
         }
 
@@ -746,15 +874,14 @@ public class DatabaseService {
         dataList.forEach(info -> {
             Row row = writer.getSheet().createRow(rowNum.getAndIncrement());
 
-            // 设置固定列的值
+            // 设置固定列的值（移除SCHEMA相关的列）
             row.createCell(0).setCellValue(info.getTableName());
-            row.createCell(1).setCellValue(info.getSchema());
-            row.createCell(2).setCellValue(info.getDataSources());
+            row.createCell(1).setCellValue(info.getDataSources());
 
             // 设置COUNT值
             for (int i = 1; i <= 8; i++) {
                 Long countValue = info.getCountValue(i);
-                Cell cell = row.createCell(2 + i);
+                Cell cell = row.createCell(1 + i);
                 if (countValue != null) {
                     cell.setCellValue(countValue);
                 } else {
@@ -763,13 +890,13 @@ public class DatabaseService {
             }
 
             // 设置金额字段和SUM字段
-            row.createCell(11).setCellValue(info.getMoneyFields());
-            row.createCell(12).setCellValue(info.getSumField());
+            row.createCell(10).setCellValue(info.getMoneyFields());
+            row.createCell(11).setCellValue(info.getSumField());
 
             // 设置SUM值（使用金额格式）
             for (int i = 1; i <= 8; i++) {
                 BigDecimal sumValue = info.getSumValue(i);
-                Cell cell = row.createCell(12 + i);
+                Cell cell = row.createCell(11 + i);
                 if (sumValue != null) {
                     cell.setCellValue(sumValue.doubleValue());
                     cell.setCellStyle(numberStyle);
@@ -779,108 +906,108 @@ public class DatabaseService {
             }
 
             // 为每行的公式列添加空单元格（后续会填充公式）
-            for (int i = 21; i <= 32; i++) {
+            for (int i = 20; i <= 31; i++) {
                 row.createCell(i);
             }
 
             // 计算公式单元格的列索引
             int currentRow = row.getRowNum() + 1; // Excel公式中的行号是从1开始的
 
-            // SUM值所在单元格的列引用
-            String sumOraCell = "N" + currentRow;          // SUM_ORA (14列)
-            String sumRlcmsBaseCell = "O" + currentRow;    // SUM_RLCMS_BASE (15列)
-            String sumRlcmsPv1Cell = "P" + currentRow;     // SUM_RLCMS_PV1 (16列)
-            String sumRlcmsPv2Cell = "Q" + currentRow;     // SUM_RLCMS_PV2 (17列)
-            String sumRlcmsPv3Cell = "R" + currentRow;     // SUM_RLCMS_PV3 (18列)
-            String sumBscopyPv1Cell = "S" + currentRow;    // SUM_BSCOPY_PV1 (19列)
-            String sumBscopyPv2Cell = "T" + currentRow;    // SUM_BSCOPY_PV2 (20列)
-            String sumBscopyPv3Cell = "U" + currentRow;    // SUM_BSCOPY_PV3 (21列)
+            // SUM值所在单元格的列引用（调整列引用）
+            String sumOraCell = "M" + currentRow;          // SUM_ORA
+            String sumRlcmsBaseCell = "N" + currentRow;    // SUM_RLCMS_BASE
+            String sumRlcmsPv1Cell = "O" + currentRow;     // SUM_RLCMS_PV1
+            String sumRlcmsPv2Cell = "P" + currentRow;     // SUM_RLCMS_PV2
+            String sumRlcmsPv3Cell = "Q" + currentRow;     // SUM_RLCMS_PV3
+            String sumBscopyPv1Cell = "R" + currentRow;    // SUM_BSCOPY_PV1
+            String sumBscopyPv2Cell = "S" + currentRow;    // SUM_BSCOPY_PV2
+            String sumBscopyPv3Cell = "T" + currentRow;    // SUM_BSCOPY_PV3
 
-            // COUNT值所在单元格的列引用
-            String countOraCell = "D" + currentRow;          // COUNT_ORA (4列)
-            String countRlcmsBaseCell = "E" + currentRow;    // COUNT_RLCMS_BASE (5列)
-            String countRlcmsPv1Cell = "F" + currentRow;     // COUNT_RLCMS_PV1 (6列)
-            String countRlcmsPv2Cell = "G" + currentRow;     // COUNT_RLCMS_PV2 (7列)
-            String countRlcmsPv3Cell = "H" + currentRow;     // COUNT_RLCMS_PV3 (8列)
-            String countBscopyPv1Cell = "I" + currentRow;    // COUNT_BSCOPY_PV1 (9列)
-            String countBscopyPv2Cell = "J" + currentRow;    // COUNT_BSCOPY_PV2 (10列)
-            String countBscopyPv3Cell = "K" + currentRow;    // COUNT_BSCOPY_PV3 (11列)
+            // COUNT值所在单元格的列引用（调整列引用）
+            String countOraCell = "C" + currentRow;          // COUNT_ORA
+            String countRlcmsBaseCell = "D" + currentRow;    // COUNT_RLCMS_BASE
+            String countRlcmsPv1Cell = "E" + currentRow;     // COUNT_RLCMS_PV1
+            String countRlcmsPv2Cell = "F" + currentRow;     // COUNT_RLCMS_PV2
+            String countRlcmsPv3Cell = "G" + currentRow;     // COUNT_RLCMS_PV3
+            String countBscopyPv1Cell = "H" + currentRow;    // COUNT_BSCOPY_PV1
+            String countBscopyPv2Cell = "I" + currentRow;    // COUNT_BSCOPY_PV2
+            String countBscopyPv3Cell = "J" + currentRow;    // COUNT_BSCOPY_PV3
 
-            // 设置SUM公式
+            // 设置公式（保持原有的公式逻辑，只调整单元格引用）
             // 公式1: ORA==PV1+PV2+PV3
-            row.createCell(21).setCellFormula(
+            row.createCell(20).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
                     sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
 
             // 公式2: ORA==PV1+PV2+PV3
-            row.createCell(22).setCellFormula(
+            row.createCell(21).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
                     sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
 
             // 公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
-            row.createCell(23).setCellFormula(
+            row.createCell(22).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsBaseCell, sumBscopyPv1Cell, sumBscopyPv2Cell, sumBscopyPv3Cell,
                     sumOraCell, sumRlcmsBaseCell, sumOraCell, sumBscopyPv1Cell, sumOraCell, sumBscopyPv2Cell, sumOraCell, sumBscopyPv3Cell));
 
             // 公式4: ORA==PV1==PV2==PV3
-            row.createCell(24).setCellFormula(
+            row.createCell(23).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
                     sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
 
             // 公式5: ORA==BASE==PV1==PV2==PV3
-            row.createCell(25).setCellFormula(
+            row.createCell(24).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsBaseCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
                     sumOraCell, sumRlcmsBaseCell, sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
 
             // 公式6: ORA==PV1
-            row.createCell(26).setCellFormula(
+            row.createCell(25).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\"), IF(ABS(%s-%s)<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
                     sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv1Cell));
 
             // 设置COUNT公式
             // COUNT公式1: ORA==PV1+PV2+PV3
-            row.createCell(27).setCellFormula(
+            row.createCell(26).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
                     countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
 
             // COUNT公式2: ORA==PV1+PV2+PV3
-            row.createCell(28).setCellFormula(
+            row.createCell(27).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
                     countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
 
             // COUNT公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
-            row.createCell(29).setCellFormula(
+            row.createCell(28).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsBaseCell, countBscopyPv1Cell, countBscopyPv2Cell, countBscopyPv3Cell,
                     countOraCell, countRlcmsBaseCell, countOraCell, countBscopyPv1Cell, countOraCell, countBscopyPv2Cell, countOraCell, countBscopyPv3Cell));
 
             // COUNT公式4: ORA==PV1==PV2==PV3
-            row.createCell(30).setCellFormula(
+            row.createCell(29).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(%s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
                     countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
 
             // COUNT公式5: ORA==BASE==PV1==PV2==PV3
-            row.createCell(31).setCellFormula(
+            row.createCell(30).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
                         "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsBaseCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
                     countOraCell, countRlcmsBaseCell, countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
 
             // COUNT公式6: ORA==PV1
-            row.createCell(32).setCellFormula(
+            row.createCell(31).setCellFormula(
                 String.format("IF(AND(%s<>\"\", %s<>\"\"), IF(%s=%s, \"TRUE\", \"FALSE\"), \"N/A\")",
                     countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv1Cell));
 
@@ -888,7 +1015,7 @@ public class DatabaseService {
             SheetConditionalFormatting sheetCF = writer.getSheet().getSheetConditionalFormatting();
 
             // 为每个公式单元格创建条件格式
-            for (int i = 21; i <= 32; i++) {
+            for (int i = 20; i <= 31; i++) {
                 Cell cell = row.getCell(i);
                 String cellRef = cell.getAddress().formatAsString();
 
@@ -927,15 +1054,13 @@ public class DatabaseService {
     @Data
     private static class TableInfo {
         private final String tableName;
-        private final String schema;
-        private final List<String> moneyFields = new ArrayList<>();
         private long recordCount = 0L;
+        private final List<String> moneyFields = new ArrayList<>();
         private final Map<String, BigDecimal> moneySums = new HashMap<>();
         private String dataSourceName;
 
-        public TableInfo(String tableName, String schema) {
+        public TableInfo(String tableName) {
             this.tableName = tableName;
-            this.schema = schema;
         }
     }
 
@@ -944,57 +1069,53 @@ public class DatabaseService {
      */
     @Data
     private static class TableMetaInfo {
-        private final String schema;
         private final List<String> dataSources = new ArrayList<>();
         private final Map<String, Long> recordCounts = new HashMap<>();
         private final Set<String> moneyFields = new HashSet<>();
         private final Map<String, Map<String, BigDecimal>> moneySums = new HashMap<>();
 
-        public TableMetaInfo(String schema) {
-            this.schema = schema;
-        }
-
         public void addDataSource(String dataSource) {
-            if (!dataSources.contains(dataSource)) {
-                dataSources.add(dataSource);
+            if (!this.dataSources.contains(dataSource)) {
+                this.dataSources.add(dataSource);
             }
         }
 
         public void setRecordCount(String dataSource, long count) {
-            recordCounts.put(dataSource, count);
+            this.recordCounts.put(dataSource, count);
         }
 
         public String getFormattedRecordCounts() {
-            // 确保记录数与数据源顺序一致
-            List<String> counts = new ArrayList<>();
-            for (String dataSource : dataSources) {
-                Long count = recordCounts.getOrDefault(dataSource, 0L);
-                counts.add(StrUtil.toString(count));
+            List<String> parts = new ArrayList<>();
+            for (Map.Entry<String, Long> entry : recordCounts.entrySet()) {
+                parts.add(StrUtil.format("{}:{}", entry.getKey(), entry.getValue()));
             }
-            return StrUtil.join("|", counts);
+            return StrUtil.join(" | ", parts);
         }
 
         public void addMoneyField(String fieldName) {
-            moneyFields.add(fieldName);
+            this.moneyFields.add(fieldName);
         }
 
         public String getFormattedMoneyFields() {
-            return StrUtil.join("|", moneyFields);
+            return StrUtil.join(" | ", moneyFields);
         }
 
-        // 添加SUM值的方法
         public void setMoneySum(String dataSource, String fieldName, BigDecimal sum) {
-            Map<String, BigDecimal> sourceSums = moneySums.computeIfAbsent(dataSource, k -> new HashMap<>());
-            sourceSums.put(fieldName, sum);
+            this.moneySums.computeIfAbsent(dataSource, k -> new HashMap<>()).put(fieldName, sum);
         }
 
-        // 获取指定数据源和字段的SUM值
         public BigDecimal getMoneySum(String dataSource, String fieldName) {
-            Map<String, BigDecimal> sourceSums = moneySums.get(dataSource);
-            if (sourceSums == null) {
-                return BigDecimal.ZERO;
-            }
-            return sourceSums.getOrDefault(fieldName, BigDecimal.ZERO);
+            Map<String, BigDecimal> dataSourceSums = this.moneySums.get(dataSource);
+            return dataSourceSums != null ? dataSourceSums.getOrDefault(fieldName, null) : null;
+        }
+
+        /**
+         * 获取所有金额字段的SUM值映射
+         *
+         * @return 数据源->字段->SUM值的嵌套映射
+         */
+        public Map<String, Map<String, BigDecimal>> getMoneySums() {
+            return this.moneySums;
         }
     }
 
