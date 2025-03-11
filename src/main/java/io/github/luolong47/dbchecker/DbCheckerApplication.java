@@ -40,7 +40,8 @@ public class DbCheckerApplication {
                 stopWatch.start("导出金额字段SUM比对");
                 
                 // 导出金额字段SUM比对结果
-                databaseService.exportMoneyFieldSumToExcel();
+//                databaseService.exportMoneyFieldSumToExcel();
+                databaseService.exportMoneyFieldSumToCsv();
 
                 // 停止计时并输出耗时
                 stopWatch.stop();

@@ -22,10 +22,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -768,7 +767,9 @@ public class DatabaseService {
             .collect(Collectors.toList());
 
         // 导出到Excel
-        exportDynamicExcel(outputFile, expandedSumInfoList);
+        // exportDynamicExcel(outputFile, expandedSumInfoList);
+        // 改为导出CSV
+        exportToCsv(outputFile, expandedSumInfoList);
 
         log.info("金额字段SUM比对结果已成功导出到: {}", outputFile);
 
@@ -1186,6 +1187,421 @@ public class DatabaseService {
             return sumValues.get(dataSource.toLowerCase());
         }
 
+    }
+
+    /**
+     * 导出金额字段的SUM值到CSV文件
+     */
+    public void exportMoneyFieldSumToCsv() throws IOException {
+        log.info("当前运行模式: {}", runMode);
+        if (!StrUtil.isEmpty(rerunDatabases)) {
+            log.info("指定重跑数据库: {}", rerunDatabases);
+        }
+
+        // 检查是否已从断点续跑文件恢复了表信息
+        boolean hasRestoredTableInfo = !tableInfoMap.isEmpty();
+
+        if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode)) {
+            log.info("已从断点续跑文件恢复{}个表的信息，将继续处理未完成的数据库和表", tableInfoMap.size());
+        } else {
+            log.info("开始收集表信息...");
+            // 如果没有恢复数据或不是断点续跑模式，则清空已有的表信息
+            if (!hasRestoredTableInfo || !"RESUME".equalsIgnoreCase(runMode)) {
+                tableInfoMap.clear();
+            }
+        }
+
+        // 获取需要处理的数据库
+        Map<String, JdbcTemplate> databasesToProcess = getDatabasesToProcess();
+        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), StrUtil.join(", ", databasesToProcess.keySet()));
+
+        // 使用CompletableFuture并发获取表信息
+        List<CompletableFuture<List<TableInfo>>> futures = new ArrayList<>();
+
+        for (Map.Entry<String, JdbcTemplate> entry : databasesToProcess.entrySet()) {
+            String dbName = entry.getKey();
+            JdbcTemplate jdbcTemplate = entry.getValue();
+
+            // 如果数据库已经处理过且从断点续跑恢复了数据，则跳过
+            if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode) && processedDatabases.contains(dbName)) {
+                log.info("数据库[{}]已在上次运行中处理，跳过", dbName);
+                continue;
+            }
+
+            CompletableFuture<List<TableInfo>> future = CompletableFuture.supplyAsync(() -> {
+                List<TableInfo> tables = getTablesInfoFromDataSource(jdbcTemplate, dbName);
+                log.info("从{}数据源获取到{}个表", dbName, tables.size());
+                return tables;
+            });
+
+            futures.add(future);
+        }
+
+        // 处理所有数据库获取的表信息
+        for (CompletableFuture<List<TableInfo>> future : futures) {
+            try {
+                List<TableInfo> tables = future.get();
+                if (tables.isEmpty()) {
+                    continue;
+                }
+
+                TableInfo firstTable = tables.get(0);
+                String dataSourceName = firstTable.getDataSourceName();
+
+                // 添加表信息到映射
+                addTableInfoToMap(tableInfoMap, tables, dataSourceName);
+
+                // 及时保存状态
+                saveResumeState();
+            } catch (Exception e) {
+                log.error("获取表信息时出错: {}", e.getMessage(), e);
+            }
+        }
+
+        log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
+
+        // 创建结果目录
+        File directory = FileUtil.file(exportDirectory);
+        if (!directory.exists()) {
+            FileUtil.mkdir(directory);
+        }
+
+        File outputFile = FileUtil.file(directory, StrUtil.format("表金额字段SUM比对-{}.csv", DateUtil.format(DateUtil.date(), "yyyyMMdd-HHmmss")));
+
+        // 对表名进行字母排序
+        List<String> sortedKeys = new ArrayList<>(tableInfoMap.keySet());
+        Collections.sort(sortedKeys);
+
+        log.info("开始计算各表金额字段SUM值...");
+
+        // 创建一个临时Map用于按表名分组
+        Map<String, List<MoneyFieldSumInfo>> tableNameGroupMap = new HashMap<>();
+
+        // 使用TableMetaInfo中的求和结果，直接构建输出信息
+        sortedKeys.forEach(key -> {
+            TableMetaInfo metaInfo = tableInfoMap.get(key);
+
+            // 创建一个默认的MoneyFieldSumInfo，即使没有金额字段
+            MoneyFieldSumInfo defaultSumInfo = new MoneyFieldSumInfo(
+                key,
+                metaInfo,
+                ""
+            );
+
+            if (metaInfo.getMoneyFields().isEmpty()) {
+                // 如果没有金额字段，添加默认条目
+                tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(defaultSumInfo);
+            } else {
+                // 对金额字段按字母排序
+                List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
+                Collections.sort(sortedMoneyFields);
+
+                // 为每个金额字段创建MoneyFieldSumInfo并添加到对应表名的分组中
+                sortedMoneyFields.forEach(moneyField -> {
+                    MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
+                        key,
+                        metaInfo,
+                        moneyField
+                    );
+                    // 添加到表名分组
+                    tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(sumInfo);
+                });
+            }
+        });
+
+        // 创建并填充结果列表，按表名排序，同一表内按金额字段排序
+        List<MoneyFieldSumInfo> dataList = tableNameGroupMap.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .flatMap(entry -> entry.getValue().stream()
+                .sorted(Comparator.comparing(MoneyFieldSumInfo::getSumField)))
+            .collect(Collectors.toList());
+
+        // 导出到CSV
+        exportToCsv(outputFile, dataList);
+
+        log.info("金额字段SUM比对结果已成功导出到: {}", outputFile);
+
+        // 在最后，确保所有处理都被标记为已完成
+        saveResumeState();
+    }
+
+    /**
+     * 导出数据到CSV文件
+     */
+    private void exportToCsv(File outputFile, List<MoneyFieldSumInfo> dataList) throws IOException {
+        log.info("开始导出CSV: {}", outputFile.getAbsolutePath());
+        log.info("总数据量: {} 条记录", dataList.size());
+
+        // CSV文件头
+        String[] headers = {
+            "表名", "所在库",
+            "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3",
+            "金额字段", "SUM字段",
+            "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
+            "公式1结果", "公式2结果", "公式3结果", "公式4结果", "公式5结果", "公式6结果",
+            "COUNT公式1结果", "COUNT公式2结果", "COUNT公式3结果", "COUNT公式4结果", "COUNT公式5结果", "COUNT公式6结果"
+        };
+
+        try (FileOutputStream fos = new FileOutputStream(outputFile);
+             OutputStreamWriter osw = new OutputStreamWriter(fos, "GBK");
+             BufferedWriter writer = new BufferedWriter(osw)) {
+
+            // 写入表头
+            writer.write(String.join(",", headers));
+            writer.newLine();
+
+            // 写入数据
+            int processedCount = 0;
+            final int BATCH_SIZE = 1000; // 每1000行记录一次日志
+            int totalSize = dataList.size();
+
+            for (MoneyFieldSumInfo info : dataList) {
+                List<String> values = new ArrayList<>();
+                values.add(escapeCsvValue(info.getTableName()));
+                values.add(escapeCsvValue(info.getDataSources()));
+
+                // COUNT值
+                values.add(formatValue(info.getCountValueByDataSource("ora")));
+                values.add(formatValue(info.getCountValueByDataSource("rlcms_base")));
+                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv1")));
+                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv2")));
+                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv3")));
+                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv1")));
+                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv2")));
+                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv3")));
+
+                // 金额字段和SUM字段
+                values.add(escapeCsvValue(info.getMoneyFields()));
+                values.add(escapeCsvValue(info.getSumField()));
+
+                // SUM值
+                values.add(formatValue(info.getSumValueByDataSource("ora")));
+                values.add(formatValue(info.getSumValueByDataSource("rlcms_base")));
+                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv1")));
+                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv2")));
+                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv3")));
+                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv1")));
+                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv2")));
+                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv3")));
+
+                // 计算并添加公式结果
+                values.add(calculateSumFormula1(info));
+                values.add(calculateSumFormula2(info));
+                values.add(calculateSumFormula3(info));
+                values.add(calculateSumFormula4(info));
+                values.add(calculateSumFormula5(info));
+                values.add(calculateSumFormula6(info));
+
+                // 计算并添加COUNT公式结果
+                values.add(calculateCountFormula1(info));
+                values.add(calculateCountFormula2(info));
+                values.add(calculateCountFormula3(info));
+                values.add(calculateCountFormula4(info));
+                values.add(calculateCountFormula5(info));
+                values.add(calculateCountFormula6(info));
+
+                // 写入一行数据
+                writer.write(String.join(",", values));
+                writer.newLine();
+
+                processedCount++;
+                if (processedCount % BATCH_SIZE == 0) {
+                    log.info("已处理 {}/{} 行 ({}%)",
+                        processedCount, totalSize,
+                        Math.round((processedCount * 100.0) / totalSize));
+                }
+            }
+        }
+
+        log.info("CSV导出完成: {}", outputFile.getAbsolutePath());
+    }
+
+    /**
+     * 格式化数值为CSV字符串
+     */
+    private String formatValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof BigDecimal) {
+            return ((BigDecimal) value).setScale(2, RoundingMode.HALF_UP).toString();
+        }
+        return value.toString();
+    }
+
+    /**
+     * 转义CSV值
+     */
+    private String escapeCsvValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        // 如果值包含逗号、引号或换行符，则需要用引号包围
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    /**
+     * 计算SUM公式结果
+     */
+    private String calculateSumFormula1(MoneyFieldSumInfo info) {
+        BigDecimal ora = info.getSumValueByDataSource("ora");
+        BigDecimal pv1 = info.getSumValueByDataSource("rlcms_pv1");
+        BigDecimal pv2 = info.getSumValueByDataSource("rlcms_pv2");
+        BigDecimal pv3 = info.getSumValueByDataSource("rlcms_pv3");
+
+        if (ora == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        BigDecimal sum = pv1.add(pv2).add(pv3);
+        return ora.subtract(sum).abs().compareTo(new BigDecimal("0.01")) <= 0 ? "TRUE" : "FALSE";
+    }
+
+    private String calculateSumFormula2(MoneyFieldSumInfo info) {
+        // 与公式1相同
+        return calculateSumFormula1(info);
+    }
+
+    private String calculateSumFormula3(MoneyFieldSumInfo info) {
+        BigDecimal ora = info.getSumValueByDataSource("ora");
+        BigDecimal base = info.getSumValueByDataSource("rlcms_base");
+        BigDecimal bscopyPv1 = info.getSumValueByDataSource("bscopy_pv1");
+        BigDecimal bscopyPv2 = info.getSumValueByDataSource("bscopy_pv2");
+        BigDecimal bscopyPv3 = info.getSumValueByDataSource("bscopy_pv3");
+
+        if (ora == null || base == null || bscopyPv1 == null || bscopyPv2 == null || bscopyPv3 == null) {
+            return "N/A";
+        }
+
+        boolean isEqual = ora.subtract(base).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(bscopyPv1).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(bscopyPv2).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(bscopyPv3).abs().compareTo(new BigDecimal("0.01")) <= 0;
+
+        return isEqual ? "TRUE" : "FALSE";
+    }
+
+    private String calculateSumFormula4(MoneyFieldSumInfo info) {
+        BigDecimal ora = info.getSumValueByDataSource("ora");
+        BigDecimal pv1 = info.getSumValueByDataSource("rlcms_pv1");
+        BigDecimal pv2 = info.getSumValueByDataSource("rlcms_pv2");
+        BigDecimal pv3 = info.getSumValueByDataSource("rlcms_pv3");
+
+        if (ora == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        boolean isEqual = ora.subtract(pv1).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(pv2).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(pv3).abs().compareTo(new BigDecimal("0.01")) <= 0;
+
+        return isEqual ? "TRUE" : "FALSE";
+    }
+
+    private String calculateSumFormula5(MoneyFieldSumInfo info) {
+        BigDecimal ora = info.getSumValueByDataSource("ora");
+        BigDecimal base = info.getSumValueByDataSource("rlcms_base");
+        BigDecimal pv1 = info.getSumValueByDataSource("rlcms_pv1");
+        BigDecimal pv2 = info.getSumValueByDataSource("rlcms_pv2");
+        BigDecimal pv3 = info.getSumValueByDataSource("rlcms_pv3");
+
+        if (ora == null || base == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        boolean isEqual = ora.subtract(base).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(pv1).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(pv2).abs().compareTo(new BigDecimal("0.01")) <= 0 &&
+            ora.subtract(pv3).abs().compareTo(new BigDecimal("0.01")) <= 0;
+
+        return isEqual ? "TRUE" : "FALSE";
+    }
+
+    private String calculateSumFormula6(MoneyFieldSumInfo info) {
+        BigDecimal ora = info.getSumValueByDataSource("ora");
+        BigDecimal pv1 = info.getSumValueByDataSource("rlcms_pv1");
+
+        if (ora == null || pv1 == null) {
+            return "N/A";
+        }
+
+        return ora.subtract(pv1).abs().compareTo(new BigDecimal("0.01")) <= 0 ? "TRUE" : "FALSE";
+    }
+
+    /**
+     * 计算COUNT公式结果
+     */
+    private String calculateCountFormula1(MoneyFieldSumInfo info) {
+        Long ora = info.getCountValueByDataSource("ora");
+        Long pv1 = info.getCountValueByDataSource("rlcms_pv1");
+        Long pv2 = info.getCountValueByDataSource("rlcms_pv2");
+        Long pv3 = info.getCountValueByDataSource("rlcms_pv3");
+
+        if (ora == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        return ora.equals(pv1 + pv2 + pv3) ? "TRUE" : "FALSE";
+    }
+
+    private String calculateCountFormula2(MoneyFieldSumInfo info) {
+        // 与公式1相同
+        return calculateCountFormula1(info);
+    }
+
+    private String calculateCountFormula3(MoneyFieldSumInfo info) {
+        Long ora = info.getCountValueByDataSource("ora");
+        Long base = info.getCountValueByDataSource("rlcms_base");
+        Long bscopyPv1 = info.getCountValueByDataSource("bscopy_pv1");
+        Long bscopyPv2 = info.getCountValueByDataSource("bscopy_pv2");
+        Long bscopyPv3 = info.getCountValueByDataSource("bscopy_pv3");
+
+        if (ora == null || base == null || bscopyPv1 == null || bscopyPv2 == null || bscopyPv3 == null) {
+            return "N/A";
+        }
+
+        return (ora.equals(base) && ora.equals(bscopyPv1) && ora.equals(bscopyPv2) && ora.equals(bscopyPv3)) ? "TRUE" : "FALSE";
+    }
+
+    private String calculateCountFormula4(MoneyFieldSumInfo info) {
+        Long ora = info.getCountValueByDataSource("ora");
+        Long pv1 = info.getCountValueByDataSource("rlcms_pv1");
+        Long pv2 = info.getCountValueByDataSource("rlcms_pv2");
+        Long pv3 = info.getCountValueByDataSource("rlcms_pv3");
+
+        if (ora == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        return (ora.equals(pv1) && ora.equals(pv2) && ora.equals(pv3)) ? "TRUE" : "FALSE";
+    }
+
+    private String calculateCountFormula5(MoneyFieldSumInfo info) {
+        Long ora = info.getCountValueByDataSource("ora");
+        Long base = info.getCountValueByDataSource("rlcms_base");
+        Long pv1 = info.getCountValueByDataSource("rlcms_pv1");
+        Long pv2 = info.getCountValueByDataSource("rlcms_pv2");
+        Long pv3 = info.getCountValueByDataSource("rlcms_pv3");
+
+        if (ora == null || base == null || pv1 == null || pv2 == null || pv3 == null) {
+            return "N/A";
+        }
+
+        return (ora.equals(base) && ora.equals(pv1) && ora.equals(pv2) && ora.equals(pv3)) ? "TRUE" : "FALSE";
+    }
+
+    private String calculateCountFormula6(MoneyFieldSumInfo info) {
+        Long ora = info.getCountValueByDataSource("ora");
+        Long pv1 = info.getCountValueByDataSource("rlcms_pv1");
+
+        if (ora == null || pv1 == null) {
+            return "N/A";
+        }
+
+        return ora.equals(pv1) ? "TRUE" : "FALSE";
     }
 
 }
