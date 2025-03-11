@@ -1,3 +1,13 @@
+DROP TABLE IF EXISTS users;
+
+CREATE TABLE users
+(
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    username   VARCHAR(50)  NOT NULL,
+    email      VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- bscopy_pv3数据库表结构
 DROP TABLE IF EXISTS logs;
 
