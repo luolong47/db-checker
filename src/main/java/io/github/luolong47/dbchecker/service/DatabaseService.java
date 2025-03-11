@@ -10,7 +10,6 @@ import cn.hutool.json.JSONUtil;
 import cn.hutool.poi.excel.ExcelUtil;
 import cn.hutool.poi.excel.ExcelWriter;
 import io.github.luolong47.dbchecker.config.DbWhereConditionConfig;
-import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -33,7 +32,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * 数据库服务类，用于测试多数据源
@@ -738,20 +736,9 @@ public class DatabaseService {
             // 创建一个默认的MoneyFieldSumInfo，即使没有金额字段
             MoneyFieldSumInfo defaultSumInfo = new MoneyFieldSumInfo(
                 tableName,
-                "",  // 空字符串代替schema
-                StrUtil.join(" | ", metaInfo.getDataSources()),
-                metaInfo.getFormattedRecordCounts(),
-                metaInfo.getMoneyFields().isEmpty() ? "" : metaInfo.getFormattedMoneyFields(),
+                metaInfo,
                 ""
             );
-
-            // 设置各数据源的记录数
-            IntStream.rangeClosed(1, metaInfo.getDataSources().size()).forEach(index -> {
-                String dataSource = metaInfo.getDataSources().get(index - 1);
-                // 设置记录数
-                Long count = metaInfo.getRecordCounts().getOrDefault(dataSource, 0L);
-                defaultSumInfo.setCountValue(index, count);
-            });
 
             if (metaInfo.getMoneyFields().isEmpty()) {
                 // 如果没有金额字段，添加默认条目
@@ -765,24 +752,9 @@ public class DatabaseService {
                 sortedMoneyFields.forEach(moneyField -> {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
                         tableName,
-                        "",  // 空字符串代替schema
-                        StrUtil.join(" | ", metaInfo.getDataSources()),
-                        metaInfo.getFormattedRecordCounts(),
-                        metaInfo.getFormattedMoneyFields(),
+                        metaInfo,
                         moneyField
                     );
-
-                    // 设置各数据源的记录数和SUM值
-                    IntStream.rangeClosed(1, metaInfo.getDataSources().size()).forEach(index -> {
-                        String dataSource = metaInfo.getDataSources().get(index - 1);
-                        // 设置记录数
-                        Long count = metaInfo.getRecordCounts().getOrDefault(dataSource, 0L);
-                        sumInfo.setCountValue(index, count);
-
-                        // 设置SUM值
-                        BigDecimal sum = metaInfo.getMoneySum(dataSource, moneyField);
-                        sumInfo.setSumValue(index, sum);
-                    });
 
                     // 添加到表名分组
                     tableNameGroupMap.computeIfAbsent(tableName, k -> new ArrayList<>()).add(sumInfo);
@@ -878,31 +850,121 @@ public class DatabaseService {
             row.createCell(0).setCellValue(info.getTableName());
             row.createCell(1).setCellValue(info.getDataSources());
 
-            // 设置COUNT值
-            for (int i = 1; i <= 8; i++) {
-                Long countValue = info.getCountValue(i);
-                Cell cell = row.createCell(1 + i);
-                if (countValue != null) {
-                    cell.setCellValue(countValue);
-                } else {
-                    cell.setCellValue("");
-                }
+            // 设置COUNT值 - 根据数据源名称设置到对应的列
+            // 初始化所有COUNT列为空
+            for (int i = 2; i <= 9; i++) {
+                Cell cell = row.createCell(i);
+                cell.setCellValue("");
+            }
+
+            // 设置所有数据源的COUNT值
+            Long oraCount = info.getCountValueByDataSource("ora");
+            if (oraCount != null) {
+                row.getCell(2).setCellValue(oraCount);
+            }
+
+            Long rlcmsBaseCount = info.getCountValueByDataSource("rlcms_base");
+            if (rlcmsBaseCount != null) {
+                row.getCell(3).setCellValue(rlcmsBaseCount);
+            }
+
+            Long rlcmsPv1Count = info.getCountValueByDataSource("rlcms_pv1");
+            if (rlcmsPv1Count != null) {
+                row.getCell(4).setCellValue(rlcmsPv1Count);
+            }
+
+            Long rlcmsPv2Count = info.getCountValueByDataSource("rlcms_pv2");
+            if (rlcmsPv2Count != null) {
+                row.getCell(5).setCellValue(rlcmsPv2Count);
+            }
+
+            Long rlcmsPv3Count = info.getCountValueByDataSource("rlcms_pv3");
+            if (rlcmsPv3Count != null) {
+                row.getCell(6).setCellValue(rlcmsPv3Count);
+            }
+
+            Long bscopyPv1Count = info.getCountValueByDataSource("bscopy_pv1");
+            if (bscopyPv1Count != null) {
+                row.getCell(7).setCellValue(bscopyPv1Count);
+            }
+
+            Long bscopyPv2Count = info.getCountValueByDataSource("bscopy_pv2");
+            if (bscopyPv2Count != null) {
+                row.getCell(8).setCellValue(bscopyPv2Count);
+            }
+
+            Long bscopyPv3Count = info.getCountValueByDataSource("bscopy_pv3");
+            if (bscopyPv3Count != null) {
+                row.getCell(9).setCellValue(bscopyPv3Count);
             }
 
             // 设置金额字段和SUM字段
             row.createCell(10).setCellValue(info.getMoneyFields());
             row.createCell(11).setCellValue(info.getSumField());
 
-            // 设置SUM值（使用金额格式）
-            for (int i = 1; i <= 8; i++) {
-                BigDecimal sumValue = info.getSumValue(i);
-                Cell cell = row.createCell(11 + i);
-                if (sumValue != null) {
-                    cell.setCellValue(sumValue.doubleValue());
-                    cell.setCellStyle(numberStyle);
-                } else {
-                    cell.setCellValue("");
-                }
+            // 设置SUM值（使用金额格式）- 根据数据源名称设置到对应的列
+            // 初始化所有SUM列为空
+            for (int i = 12; i <= 19; i++) {
+                Cell cell = row.createCell(i);
+                cell.setCellValue("");
+                cell.setCellStyle(numberStyle);
+            }
+
+            // 设置所有数据源的SUM值
+            BigDecimal oraSum = info.getSumValueByDataSource("ora");
+            if (oraSum != null) {
+                Cell cell = row.getCell(12);
+                cell.setCellValue(oraSum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal rlcmsBaseSum = info.getSumValueByDataSource("rlcms_base");
+            if (rlcmsBaseSum != null) {
+                Cell cell = row.getCell(13);
+                cell.setCellValue(rlcmsBaseSum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal rlcmsPv1Sum = info.getSumValueByDataSource("rlcms_pv1");
+            if (rlcmsPv1Sum != null) {
+                Cell cell = row.getCell(14);
+                cell.setCellValue(rlcmsPv1Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal rlcmsPv2Sum = info.getSumValueByDataSource("rlcms_pv2");
+            if (rlcmsPv2Sum != null) {
+                Cell cell = row.getCell(15);
+                cell.setCellValue(rlcmsPv2Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal rlcmsPv3Sum = info.getSumValueByDataSource("rlcms_pv3");
+            if (rlcmsPv3Sum != null) {
+                Cell cell = row.getCell(16);
+                cell.setCellValue(rlcmsPv3Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal bscopyPv1Sum = info.getSumValueByDataSource("bscopy_pv1");
+            if (bscopyPv1Sum != null) {
+                Cell cell = row.getCell(17);
+                cell.setCellValue(bscopyPv1Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal bscopyPv2Sum = info.getSumValueByDataSource("bscopy_pv2");
+            if (bscopyPv2Sum != null) {
+                Cell cell = row.getCell(18);
+                cell.setCellValue(bscopyPv2Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
+            }
+
+            BigDecimal bscopyPv3Sum = info.getSumValueByDataSource("bscopy_pv3");
+            if (bscopyPv3Sum != null) {
+                Cell cell = row.getCell(19);
+                cell.setCellValue(bscopyPv3Sum.doubleValue());
+                cell.setCellStyle(numberStyle);
             }
 
             // 为每行的公式列添加空单元格（后续会填充公式）
@@ -1116,6 +1178,62 @@ public class DatabaseService {
          */
         public Map<String, Map<String, BigDecimal>> getMoneySums() {
             return this.moneySums;
+        }
+    }
+
+    @Data
+    public static class MoneyFieldSumInfo {
+        private final String tableName;
+        private final String dataSources;
+        private final Map<String, Long> countValues = new HashMap<>();
+        private final String moneyFields;
+        private final String sumField;
+        private final Map<String, BigDecimal> sumValues = new HashMap<>();
+
+        // 在构造函数中保存数据源和对应的COUNT值和SUM值
+        public MoneyFieldSumInfo(String tableName, TableMetaInfo metaInfo, String sumField) {
+            this.tableName = tableName;
+            this.dataSources = String.join(" | ", metaInfo.getDataSources());
+            this.moneyFields = metaInfo.getFormattedMoneyFields();
+            this.sumField = sumField;
+
+            // 直接保存每个数据源的COUNT值
+            for (String ds : metaInfo.getDataSources()) {
+                Long count = metaInfo.getRecordCounts().get(ds);
+                if (count != null) {
+                    countValues.put(ds.toLowerCase(), count);
+                }
+            }
+
+            // 直接保存每个数据源的SUM值
+            for (String ds : metaInfo.getDataSources()) {
+                BigDecimal sum = metaInfo.getMoneySum(ds, sumField);
+                if (sum != null) {
+                    sumValues.put(ds.toLowerCase(), sum);
+                }
+            }
+        }
+
+        // 根据数据源名称获取COUNT值
+        public Long getCountValueByDataSource(String dataSource) {
+            return countValues.get(dataSource.toLowerCase());
+        }
+
+        // 根据数据源名称获取SUM值
+        public BigDecimal getSumValueByDataSource(String dataSource) {
+            return sumValues.get(dataSource.toLowerCase());
+        }
+
+        // 保留原有方法兼容性
+        public Long getCountValue(int index) {
+            // 此方法不再使用
+            return null;
+        }
+
+        // 保留原有方法兼容性
+        public BigDecimal getSumValue(int index) {
+            // 此方法不再使用
+            return null;
         }
     }
 
