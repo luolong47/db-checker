@@ -11,10 +11,6 @@ import io.github.luolong47.dbchecker.config.DbWhereConditionConfig;
 import lombok.Data;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.ss.util.CellRangeAddress;
-import org.apache.poi.xssf.streaming.SXSSFSheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.BadSqlGrammarException;
@@ -127,7 +123,7 @@ public class DatabaseService {
         // 只在断点续跑模式下加载状态
         if ("RESUME".equalsIgnoreCase(runMode)) {
             try {
-                File file = FileUtil.file(resumeFile);
+                File file = new File(resumeFile);
                 if (file.exists()) {
                     log.info("检测到断点续跑文件: {}", resumeFile);
 
@@ -634,457 +630,6 @@ public class DatabaseService {
     }
 
     /**
-     * 导出金额字段的SUM值到Excel文件
-     */
-    public void exportMoneyFieldSumToExcel() throws IOException {
-        log.info("当前运行模式: {}", runMode);
-        if (!StrUtil.isEmpty(rerunDatabases)) {
-            log.info("指定重跑数据库: {}", rerunDatabases);
-        }
-
-        // 检查是否已从断点续跑文件恢复了表信息
-        boolean hasRestoredTableInfo = !tableInfoMap.isEmpty();
-
-        if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode)) {
-            log.info("已从断点续跑文件恢复{}个表的信息，将继续处理未完成的数据库和表", tableInfoMap.size());
-        } else {
-            log.info("开始收集表信息...");
-            // 如果没有恢复数据或不是断点续跑模式，则清空已有的表信息
-            if (!hasRestoredTableInfo || !"RESUME".equalsIgnoreCase(runMode)) {
-                tableInfoMap.clear();
-            }
-        }
-
-        // 获取需要处理的数据库
-        Map<String, JdbcTemplate> databasesToProcess = getDatabasesToProcess();
-        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), StrUtil.join(", ", databasesToProcess.keySet()));
-
-        // 使用CompletableFuture并发获取表信息
-        List<CompletableFuture<List<TableInfo>>> futures = new ArrayList<>();
-
-        for (Map.Entry<String, JdbcTemplate> entry : databasesToProcess.entrySet()) {
-            String dbName = entry.getKey();
-            JdbcTemplate jdbcTemplate = entry.getValue();
-
-            // 如果数据库已经处理过且从断点续跑恢复了数据，则跳过
-            if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(runMode) && processedDatabases.contains(dbName)) {
-                log.info("数据库[{}]已在上次运行中处理，跳过", dbName);
-                continue;
-            }
-
-            CompletableFuture<List<TableInfo>> future = CompletableFuture.supplyAsync(() -> {
-                List<TableInfo> tables = getTablesInfoFromDataSource(jdbcTemplate, dbName);
-                log.info("从{}数据源获取到{}个表", dbName, tables.size());
-                return tables;
-            });
-
-            futures.add(future);
-        }
-
-        // 处理所有数据库获取的表信息
-        for (CompletableFuture<List<TableInfo>> future : futures) {
-            try {
-                List<TableInfo> tables = future.get();
-                if (tables.isEmpty()) {
-                    continue;
-                }
-
-                TableInfo firstTable = tables.get(0);
-                String dataSourceName = firstTable.getDataSourceName();
-
-                // 添加表信息到映射
-                addTableInfoToMap(tableInfoMap, tables, dataSourceName);
-
-                // 及时保存状态
-                saveResumeState();
-            } catch (Exception e) {
-                log.error("获取表信息时出错: {}", e.getMessage(), e);
-            }
-        }
-
-        log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
-
-        // 创建结果目录，确保能够正确导出文件
-        File directory = FileUtil.file(exportDirectory);
-        if (!directory.exists()) {
-            FileUtil.mkdir(directory);
-        }
-
-        File outputFile = FileUtil.file(directory, StrUtil.format("表金额字段SUM比对-{}.xlsx", DateUtil.format(DateUtil.date(), "yyyyMMdd-HHmmss")));
-
-        // 将tableInfoMap转换为展开后的MoneyFieldSumInfo列表 - 声明为最终变量
-        final List<MoneyFieldSumInfo> expandedSumInfoList;
-
-        // 对表名进行字母排序
-        List<String> sortedKeys = new ArrayList<>(tableInfoMap.keySet());
-        Collections.sort(sortedKeys);
-
-        log.info("开始计算各表金额字段SUM值...");
-
-        // 创建一个临时Map用于按表名分组
-        Map<String, List<MoneyFieldSumInfo>> tableNameGroupMap = new HashMap<>();
-
-        // 使用TableMetaInfo中的求和结果，直接构建输出信息
-        sortedKeys.forEach(key -> {
-            // 移除对schema的依赖，直接使用表名作为键
-
-            TableMetaInfo metaInfo = tableInfoMap.get(key);
-
-            // 创建一个默认的MoneyFieldSumInfo，即使没有金额字段
-            MoneyFieldSumInfo defaultSumInfo = new MoneyFieldSumInfo(
-                key,
-                metaInfo,
-                ""
-            );
-
-            if (metaInfo.getMoneyFields().isEmpty()) {
-                // 如果没有金额字段，添加默认条目
-                tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(defaultSumInfo);
-            } else {
-                // 对金额字段按字母排序
-                List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
-                Collections.sort(sortedMoneyFields);
-
-                // 为每个金额字段创建MoneyFieldSumInfo并添加到对应表名的分组中
-                sortedMoneyFields.forEach(moneyField -> {
-                    MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
-                        key,
-                        metaInfo,
-                        moneyField
-                    );
-
-                    // 添加到表名分组
-                    tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(sumInfo);
-                });
-            }
-        });
-
-        // 创建并填充结果列表，按表名排序，同一表内按金额字段排序
-        expandedSumInfoList = tableNameGroupMap.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
-            .flatMap(entry -> entry.getValue().stream()
-                .sorted(Comparator.comparing(MoneyFieldSumInfo::getSumField)))
-            .collect(Collectors.toList());
-
-        // 导出到Excel
-        // exportDynamicExcel(outputFile, expandedSumInfoList);
-        // 改为导出CSV
-        exportToCsv(outputFile, expandedSumInfoList);
-
-        log.info("金额字段SUM比对结果已成功导出到: {}", outputFile);
-
-        // 在最后，确保所有处理都被标记为已完成
-        saveResumeState();
-    }
-
-    /**
-     * 导出动态行列Excel
-     */
-    private void exportDynamicExcel(File outputFile, List<MoneyFieldSumInfo> dataList) {
-        log.info("开始导出Excel: {}", outputFile.getAbsolutePath());
-        log.info("总数据量: {} 条记录", dataList.size());
-
-        // 确保数据按表名和金额字段正确排序
-        dataList.sort(Comparator.comparing(MoneyFieldSumInfo::getTableName)
-            .thenComparing(MoneyFieldSumInfo::getSumField));
-
-        // 创建支持流式写入的工作簿，设置内存中保留100行，其余写入临时文件
-        SXSSFWorkbook workbook = new SXSSFWorkbook(null, 100, true, true);
-        try {
-            SXSSFSheet sheet = workbook.createSheet("金额字段SUM结果");
-
-            // 设置表格名称
-            Row headerRow = sheet.createRow(0);
-
-            // 固定列的标题（移除SCHEMA列）
-            String[] fixedHeaders = {
-                "表名", "所在库",
-                "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3",
-                "金额字段", "SUM字段",
-                "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
-                "公式1: ORA==PV1+PV2+PV3",
-                "公式2: ORA==PV1+PV2+PV3",
-                "公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3",
-                "公式4: ORA==PV1==PV2==PV3",
-                "公式5: ORA==BASE==PV1==PV2==PV3",
-                "公式6: ORA==PV1",
-                "COUNT公式1: ORA==PV1+PV2+PV3",
-                "COUNT公式2: ORA==PV1+PV2+PV3",
-                "COUNT公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3",
-                "COUNT公式4: ORA==PV1==PV2==PV3",
-                "COUNT公式5: ORA==BASE==PV1==PV2==PV3",
-                "COUNT公式6: ORA==PV1"
-            };
-
-            // 设置表头
-            for (int i = 0; i < fixedHeaders.length; i++) {
-                Cell cell = headerRow.createCell(i);
-                cell.setCellValue(fixedHeaders[i]);
-            }
-
-            // 创建样式
-            CellStyle headerStyle = workbook.createCellStyle();
-            headerStyle.setAlignment(HorizontalAlignment.CENTER);
-            Font headerFont = workbook.createFont();
-            headerFont.setBold(true);
-            headerStyle.setFont(headerFont);
-
-            // 应用表头样式
-            for (int i = 0; i < fixedHeaders.length; i++) {
-                headerRow.getCell(i).setCellStyle(headerStyle);
-            }
-
-            // 设置货币样式
-            CellStyle numberStyle = workbook.createCellStyle();
-            DataFormat format = workbook.createDataFormat();
-            numberStyle.setDataFormat(format.getFormat("#,##0.00"));
-
-            // 填充数据
-            int rowNum = 1;
-            final int BATCH_SIZE = 100; // 每100行刷新一次
-            int processedCount = 0;
-            int totalSize = dataList.size();
-
-            for (MoneyFieldSumInfo info : dataList) {
-                Row row = sheet.createRow(rowNum++);
-
-                // 设置固定列的值
-                row.createCell(0).setCellValue(info.getTableName());
-                row.createCell(1).setCellValue(info.getDataSources());
-
-                // 设置COUNT值
-                setCellValue(row.createCell(2), info.getCountValueByDataSource("ora"));
-                setCellValue(row.createCell(3), info.getCountValueByDataSource("rlcms_base"));
-                setCellValue(row.createCell(4), info.getCountValueByDataSource("rlcms_pv1"));
-                setCellValue(row.createCell(5), info.getCountValueByDataSource("rlcms_pv2"));
-                setCellValue(row.createCell(6), info.getCountValueByDataSource("rlcms_pv3"));
-                setCellValue(row.createCell(7), info.getCountValueByDataSource("bscopy_pv1"));
-                setCellValue(row.createCell(8), info.getCountValueByDataSource("bscopy_pv2"));
-                setCellValue(row.createCell(9), info.getCountValueByDataSource("bscopy_pv3"));
-
-                // 设置金额字段和SUM字段
-                row.createCell(10).setCellValue(info.getMoneyFields());
-                row.createCell(11).setCellValue(info.getSumField());
-
-                // 设置SUM值
-                setMoneyValue(row.createCell(12), info.getSumValueByDataSource("ora"), numberStyle);
-                setMoneyValue(row.createCell(13), info.getSumValueByDataSource("rlcms_base"), numberStyle);
-                setMoneyValue(row.createCell(14), info.getSumValueByDataSource("rlcms_pv1"), numberStyle);
-                setMoneyValue(row.createCell(15), info.getSumValueByDataSource("rlcms_pv2"), numberStyle);
-                setMoneyValue(row.createCell(16), info.getSumValueByDataSource("rlcms_pv3"), numberStyle);
-                setMoneyValue(row.createCell(17), info.getSumValueByDataSource("bscopy_pv1"), numberStyle);
-                setMoneyValue(row.createCell(18), info.getSumValueByDataSource("bscopy_pv2"), numberStyle);
-                setMoneyValue(row.createCell(19), info.getSumValueByDataSource("bscopy_pv3"), numberStyle);
-
-                // 设置公式
-                setFormulas(row, sheet);
-
-                processedCount++;
-                if (processedCount % BATCH_SIZE == 0) {
-                    sheet.flushRows(); // 强制刷新到磁盘
-                    log.info("已处理 {}/{} 行 ({}%)",
-                        processedCount, totalSize,
-                        Math.round((processedCount * 100.0) / totalSize));
-                }
-            }
-
-            // 设置列宽
-            for (int i = 0; i < fixedHeaders.length; i++) {
-                sheet.setColumnWidth(i, 4000); // 设置一个合理的默认宽度
-            }
-            sheet.setColumnWidth(0, 6000); // 表名列加宽
-            sheet.setColumnWidth(1, 8000); // 所在库列加宽
-            sheet.setColumnWidth(10, 6000); // 金额字段列加宽
-
-            // 写入文件
-            try (FileOutputStream fileOut = new FileOutputStream(outputFile)) {
-                workbook.write(fileOut);
-            }
-
-            log.info("Excel导出完成: {}", outputFile.getAbsolutePath());
-        } catch (Exception e) {
-            log.error("导出Excel时发生错误: {}", e.getMessage(), e);
-            throw new RuntimeException("导出Excel失败", e);
-        } finally {
-            try {
-                // 关闭工作簿
-                workbook.close();
-            } catch (IOException e) {
-                log.error("关闭工作簿时发生错误: {}", e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 设置单元格数值
-     */
-    private void setCellValue(Cell cell, Long value) {
-        if (value != null) {
-            cell.setCellValue(value);
-        } else {
-            cell.setCellValue("");
-        }
-    }
-
-    /**
-     * 设置金额单元格值
-     */
-    private void setMoneyValue(Cell cell, BigDecimal value, CellStyle style) {
-        if (value != null) {
-            cell.setCellValue(value.doubleValue());
-            cell.setCellStyle(style);
-        } else {
-            cell.setCellValue("");
-        }
-    }
-
-    /**
-     * 设置公式
-     */
-    private void setFormulas(Row row, Sheet sheet) {
-        int currentRow = row.getRowNum() + 1;
-
-        // 设置SUM值公式
-        String sumOraCell = "M" + currentRow;
-        String sumRlcmsBaseCell = "N" + currentRow;
-        String sumRlcmsPv1Cell = "O" + currentRow;
-        String sumRlcmsPv2Cell = "P" + currentRow;
-        String sumRlcmsPv3Cell = "Q" + currentRow;
-        String sumBscopyPv1Cell = "R" + currentRow;
-        String sumBscopyPv2Cell = "S" + currentRow;
-        String sumBscopyPv3Cell = "T" + currentRow;
-
-        // COUNT值单元格引用
-        String countOraCell = "C" + currentRow;
-        String countRlcmsBaseCell = "D" + currentRow;
-        String countRlcmsPv1Cell = "E" + currentRow;
-        String countRlcmsPv2Cell = "F" + currentRow;
-        String countRlcmsPv3Cell = "G" + currentRow;
-        String countBscopyPv1Cell = "H" + currentRow;
-        String countBscopyPv2Cell = "I" + currentRow;
-        String countBscopyPv3Cell = "J" + currentRow;
-
-        // 公式1: ORA==PV1+PV2+PV3
-        setFormula(row, 20, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
-            sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
-
-        // 公式2: ORA==PV1+PV2+PV3
-        setFormula(row, 21, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(ABS(%s-(%s+%s+%s))<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
-            sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell));
-
-        // 公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
-        setFormula(row, 22, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsBaseCell, sumBscopyPv1Cell, sumBscopyPv2Cell, sumBscopyPv3Cell,
-            sumOraCell, sumRlcmsBaseCell, sumOraCell, sumBscopyPv1Cell, sumOraCell, sumBscopyPv2Cell, sumOraCell, sumBscopyPv3Cell));
-
-        // 公式4: ORA==PV1==PV2==PV3
-        setFormula(row, 23, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
-            sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
-
-        // 公式5: ORA==BASE==PV1==PV2==PV3
-        setFormula(row, 24, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01, ABS(%s-%s)<=0.01), \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsBaseCell, sumRlcmsPv1Cell, sumRlcmsPv2Cell, sumRlcmsPv3Cell,
-            sumOraCell, sumRlcmsBaseCell, sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv2Cell, sumOraCell, sumRlcmsPv3Cell));
-
-        // 公式6: ORA==PV1
-        setFormula(row, 25, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\"), IF(ABS(%s-%s)<=0.01, \"TRUE\", \"FALSE\"), \"N/A\")",
-            sumOraCell, sumRlcmsPv1Cell, sumOraCell, sumRlcmsPv1Cell));
-
-        // COUNT公式1: ORA==PV1+PV2+PV3
-        setFormula(row, 26, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
-            countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
-
-        // COUNT公式2: ORA==PV1+PV2+PV3
-        setFormula(row, 27, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), IF(%s=(%s+%s+%s), \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
-            countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell));
-
-        // COUNT公式3: ORA==BASE==BSCOPY_PV1==BSCOPY_PV2==BSCOPY_PV3
-        setFormula(row, 28, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsBaseCell, countBscopyPv1Cell, countBscopyPv2Cell, countBscopyPv3Cell,
-            countOraCell, countRlcmsBaseCell, countOraCell, countBscopyPv1Cell, countOraCell, countBscopyPv2Cell, countOraCell, countBscopyPv3Cell));
-
-        // COUNT公式4: ORA==PV1==PV2==PV3
-        setFormula(row, 29, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(%s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
-            countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
-
-        // COUNT公式5: ORA==BASE==PV1==PV2==PV3
-        setFormula(row, 30, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\", %s<>\"\"), " +
-                "IF(AND(%s=%s, %s=%s, %s=%s, %s=%s), \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsBaseCell, countRlcmsPv1Cell, countRlcmsPv2Cell, countRlcmsPv3Cell,
-            countOraCell, countRlcmsBaseCell, countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv2Cell, countOraCell, countRlcmsPv3Cell));
-
-        // COUNT公式6: ORA==PV1
-        setFormula(row, 31, String.format(
-            "IF(AND(%s<>\"\", %s<>\"\"), IF(%s=%s, \"TRUE\", \"FALSE\"), \"N/A\")",
-            countOraCell, countRlcmsPv1Cell, countOraCell, countRlcmsPv1Cell));
-
-        // 设置条件格式
-        setConditionalFormatting(sheet, row);
-    }
-
-    /**
-     * 设置单个公式
-     */
-    private void setFormula(Row row, int columnIndex, String formula) {
-        Cell cell = row.createCell(columnIndex);
-        cell.setCellFormula(formula);
-    }
-
-    /**
-     * 设置条件格式
-     */
-    private void setConditionalFormatting(Sheet sheet, Row row) {
-        SheetConditionalFormatting sheetCF = sheet.getSheetConditionalFormatting();
-
-        // 为公式结果列设置条件格式（20-31列）
-        for (int i = 20; i <= 31; i++) {
-            Cell cell = row.getCell(i);
-            String cellRef = cell.getAddress().formatAsString();
-
-            // TRUE的样式规则
-            ConditionalFormattingRule trueRule = sheetCF.createConditionalFormattingRule("\"TRUE\"=" + cellRef);
-            PatternFormatting truePattern = trueRule.createPatternFormatting();
-            truePattern.setFillBackgroundColor(IndexedColors.LIGHT_GREEN.getIndex());
-            truePattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
-
-            // FALSE的样式规则
-            ConditionalFormattingRule falseRule = sheetCF.createConditionalFormattingRule("\"FALSE\"=" + cellRef);
-            PatternFormatting falsePattern = falseRule.createPatternFormatting();
-            falsePattern.setFillBackgroundColor(IndexedColors.ROSE.getIndex());
-            falsePattern.setFillPattern(PatternFormatting.SOLID_FOREGROUND);
-
-            // 应用规则
-            CellRangeAddress[] regions = {
-                new CellRangeAddress(cell.getRowIndex(), cell.getRowIndex(),
-                    cell.getColumnIndex(), cell.getColumnIndex())
-            };
-            sheetCF.addConditionalFormatting(regions, trueRule, falseRule);
-        }
-    }
-
-    /**
      * 表信息类
      */
     @Data
@@ -1140,51 +685,6 @@ public class DatabaseService {
         public BigDecimal getMoneySum(String dataSource, String fieldName) {
             Map<String, BigDecimal> dataSourceSums = this.moneySums.get(dataSource);
             return dataSourceSums != null ? dataSourceSums.getOrDefault(fieldName, null) : null;
-        }
-
-    }
-
-    @Data
-    public static class MoneyFieldSumInfo {
-        private final String tableName;
-        private final String dataSources;
-        private final Map<String, Long> countValues = new HashMap<>();
-        private final String moneyFields;
-        private final String sumField;
-        private final Map<String, BigDecimal> sumValues = new HashMap<>();
-
-        // 在构造函数中保存数据源和对应的COUNT值和SUM值
-        public MoneyFieldSumInfo(String tableName, TableMetaInfo metaInfo, String sumField) {
-            this.tableName = tableName;
-            this.dataSources = String.join(" | ", metaInfo.getDataSources());
-            this.moneyFields = metaInfo.getFormattedMoneyFields();
-            this.sumField = sumField;
-
-            // 直接保存每个数据源的COUNT值
-            for (String ds : metaInfo.getDataSources()) {
-                Long count = metaInfo.getRecordCounts().get(ds);
-                if (count != null) {
-                    countValues.put(ds.toLowerCase(), count);
-                }
-            }
-
-            // 直接保存每个数据源的SUM值
-            for (String ds : metaInfo.getDataSources()) {
-                BigDecimal sum = metaInfo.getMoneySum(ds, sumField);
-                if (sum != null) {
-                    sumValues.put(ds.toLowerCase(), sum);
-                }
-            }
-        }
-
-        // 根据数据源名称获取COUNT值
-        public Long getCountValueByDataSource(String dataSource) {
-            return countValues.get(dataSource.toLowerCase());
-        }
-
-        // 根据数据源名称获取SUM值
-        public BigDecimal getSumValueByDataSource(String dataSource) {
-            return sumValues.get(dataSource.toLowerCase());
         }
 
     }
@@ -1261,7 +761,7 @@ public class DatabaseService {
         log.info("表信息收集完成，共发现{}个表", tableInfoMap.size());
 
         // 创建结果目录
-        File directory = FileUtil.file(exportDirectory);
+        File directory = new File(exportDirectory);
         if (!directory.exists()) {
             FileUtil.mkdir(directory);
         }
@@ -1281,21 +781,12 @@ public class DatabaseService {
         sortedKeys.forEach(key -> {
             TableMetaInfo metaInfo = tableInfoMap.get(key);
 
-            // 创建一个默认的MoneyFieldSumInfo，即使没有金额字段
-            MoneyFieldSumInfo defaultSumInfo = new MoneyFieldSumInfo(
-                key,
-                metaInfo,
-                ""
-            );
+            // 对金额字段按字母排序
+            List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
+            Collections.sort(sortedMoneyFields);
 
-            if (metaInfo.getMoneyFields().isEmpty()) {
-                // 如果没有金额字段，添加默认条目
-                tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(defaultSumInfo);
-            } else {
-                // 对金额字段按字母排序
-                List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
-                Collections.sort(sortedMoneyFields);
-
+            // 如果没有金额字段，不再创建额外的记录，COUNT记录将在exportToCsv方法中添加
+            if (!sortedMoneyFields.isEmpty()) {
                 // 为每个金额字段创建MoneyFieldSumInfo并添加到对应表名的分组中
                 sortedMoneyFields.forEach(moneyField -> {
                     MoneyFieldSumInfo sumInfo = new MoneyFieldSumInfo(
@@ -1306,6 +797,10 @@ public class DatabaseService {
                     // 添加到表名分组
                     tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>()).add(sumInfo);
                 });
+            } else {
+                // 对于没有金额字段的表，确保表名在映射中有一个空列表
+                // 这样在exportToCsv中仍然能为其创建COUNT特殊字段
+                tableNameGroupMap.computeIfAbsent(key, k -> new ArrayList<>());
             }
         });
 
@@ -1332,14 +827,12 @@ public class DatabaseService {
         log.info("开始导出CSV: {}", outputFile.getAbsolutePath());
         log.info("总数据量: {} 条记录", dataList.size());
 
-        // CSV文件头
+        // 整合后的CSV文件头
         String[] headers = {
             "表名", "所在库",
-            "COUNT_ORA", "COUNT_RLCMS_BASE", "COUNT_RLCMS_PV1", "COUNT_RLCMS_PV2", "COUNT_RLCMS_PV3", "COUNT_BSCOPY_PV1", "COUNT_BSCOPY_PV2", "COUNT_BSCOPY_PV3",
             "金额字段", "SUM字段",
             "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
-            "公式1结果", "公式2结果", "公式3结果", "公式4结果", "公式5结果", "公式6结果",
-            "COUNT公式1结果", "COUNT公式2结果", "COUNT公式3结果", "COUNT公式4结果", "COUNT公式5结果", "COUNT公式6结果"
+            "公式1结果", "公式2结果", "公式3结果", "公式4结果", "公式5结果", "公式6结果"
         };
 
         try (FileOutputStream fos = new FileOutputStream(outputFile);
@@ -1355,50 +848,128 @@ public class DatabaseService {
             final int BATCH_SIZE = 1000; // 每1000行记录一次日志
             int totalSize = dataList.size();
 
+            // 创建一个新的列表，添加COUNT行作为特殊字段
+            List<MoneyFieldSumInfo> enrichedDataList = new ArrayList<>();
+
+            // 收集所有表名
+            Set<String> allTables = new HashSet<>();
             for (MoneyFieldSumInfo info : dataList) {
+                allTables.add(info.getTableName());
+            }
+
+            // 收集所有来自tableInfoMap的表名，包括没有金额字段的表
+            Set<String> allTablesFromMetaInfo = new HashSet<>(tableInfoMap.keySet());
+
+            // 日志输出分析
+            log.info("数据列表中的表数量: {}, 元数据中的表数量: {}",
+                allTables.size(), allTablesFromMetaInfo.size());
+
+            // 找出在元数据中存在但不在数据列表中的表（没有金额字段的表）
+            Set<String> tablesWithoutMoneyFields = new HashSet<>(allTablesFromMetaInfo);
+            tablesWithoutMoneyFields.removeAll(allTables);
+
+            if (tablesWithoutMoneyFields.isEmpty()) {
+                log.info("所有表都有金额字段，无需特殊处理");
+            } else {
+                log.info("发现{}个没有金额字段的表: {}",
+                    tablesWithoutMoneyFields.size(),
+                    StrUtil.join(", ", tablesWithoutMoneyFields.stream().sorted().limit(10).collect(Collectors.toList())) +
+                        (tablesWithoutMoneyFields.size() > 10 ? "..." : ""));
+            }
+
+            // 按表名组织数据
+            Map<String, List<MoneyFieldSumInfo>> tableGroups = dataList.stream()
+                .collect(Collectors.groupingBy(MoneyFieldSumInfo::getTableName));
+
+            // 处理每个表的数据
+            for (Map.Entry<String, List<MoneyFieldSumInfo>> entry : tableGroups.entrySet()) {
+                String tableName = entry.getKey();
+                List<MoneyFieldSumInfo> tableData = entry.getValue();
+
+                // 创建COUNT特殊字段
+                MoneyFieldSumInfo countInfo = new MoneyFieldSumInfo(
+                    tableName,
+                    tableInfoMap.get(tableName),
+                    "_COUNT"
+                );
+
+                // 添加COUNT特殊字段
+                enrichedDataList.add(countInfo);
+
+                // 只有当表有金额字段时，才添加原有字段数据
+                if (!tableData.isEmpty()) {
+                    enrichedDataList.addAll(tableData);
+                }
+            }
+
+            // 处理没有金额字段的表
+            for (String tableName : tablesWithoutMoneyFields) {
+                TableMetaInfo metaInfo = tableInfoMap.get(tableName);
+                if (metaInfo != null) {
+                    MoneyFieldSumInfo countInfo = new MoneyFieldSumInfo(
+                        tableName,
+                        metaInfo,
+                        "_COUNT"
+                    );
+                    enrichedDataList.add(countInfo);
+                    log.debug("为没有金额字段的表[{}]添加COUNT特殊字段", tableName);
+                }
+            }
+
+            int tablesWithFieldsCount = tableGroups.size();
+            int tablesWithoutFieldsCount = tablesWithoutMoneyFields.size();
+            int totalTablesCount = tablesWithFieldsCount + tablesWithoutFieldsCount;
+
+            log.info("最终处理表统计：共{}个表，其中{}个有金额字段表，{}个无金额字段表",
+                totalTablesCount, tablesWithFieldsCount, tablesWithoutFieldsCount);
+            log.info("最终输出数据行数: {}", enrichedDataList.size());
+
+            // 使用增强后的数据列表
+            for (MoneyFieldSumInfo info : enrichedDataList) {
                 List<String> values = new ArrayList<>();
                 values.add(escapeCsvValue(info.getTableName()));
                 values.add(escapeCsvValue(info.getDataSources()));
-
-                // COUNT值
-                values.add(formatValue(info.getCountValueByDataSource("ora")));
-                values.add(formatValue(info.getCountValueByDataSource("rlcms_base")));
-                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv1")));
-                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv2")));
-                values.add(formatValue(info.getCountValueByDataSource("rlcms_pv3")));
-                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv1")));
-                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv2")));
-                values.add(formatValue(info.getCountValueByDataSource("bscopy_pv3")));
 
                 // 金额字段和SUM字段
                 values.add(escapeCsvValue(info.getMoneyFields()));
                 values.add(escapeCsvValue(info.getSumField()));
 
-                // SUM值
-                values.add(formatValue(info.getSumValueByDataSource("ora")));
-                values.add(formatValue(info.getSumValueByDataSource("rlcms_base")));
-                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv1")));
-                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv2")));
-                values.add(formatValue(info.getSumValueByDataSource("rlcms_pv3")));
-                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv1")));
-                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv2")));
-                values.add(formatValue(info.getSumValueByDataSource("bscopy_pv3")));
+                // SUM值 (如果是COUNT特殊字段，则使用COUNT值)
+                if (info.isCountField()) {
+                    values.add(formatValue(info.getCountValueByDataSource("ora")));
+                    values.add(formatValue(info.getCountValueByDataSource("rlcms_base")));
+                    values.add(formatValue(info.getCountValueByDataSource("rlcms_pv1")));
+                    values.add(formatValue(info.getCountValueByDataSource("rlcms_pv2")));
+                    values.add(formatValue(info.getCountValueByDataSource("rlcms_pv3")));
+                    values.add(formatValue(info.getCountValueByDataSource("bscopy_pv1")));
+                    values.add(formatValue(info.getCountValueByDataSource("bscopy_pv2")));
+                    values.add(formatValue(info.getCountValueByDataSource("bscopy_pv3")));
 
-                // 计算并添加公式结果
-                values.add(calculateSumFormula1(info));
-                values.add(calculateSumFormula2(info));
-                values.add(calculateSumFormula3(info));
-                values.add(calculateSumFormula4(info));
-                values.add(calculateSumFormula5(info));
-                values.add(calculateSumFormula6(info));
+                    // 计算并添加COUNT公式结果作为普通公式结果
+                    values.add(calculateCountFormula1(info));
+                    values.add(calculateCountFormula2(info));
+                    values.add(calculateCountFormula3(info));
+                    values.add(calculateCountFormula4(info));
+                    values.add(calculateCountFormula5(info));
+                    values.add(calculateCountFormula6(info));
+                } else {
+                    values.add(formatValue(info.getSumValueByDataSource("ora")));
+                    values.add(formatValue(info.getSumValueByDataSource("rlcms_base")));
+                    values.add(formatValue(info.getSumValueByDataSource("rlcms_pv1")));
+                    values.add(formatValue(info.getSumValueByDataSource("rlcms_pv2")));
+                    values.add(formatValue(info.getSumValueByDataSource("rlcms_pv3")));
+                    values.add(formatValue(info.getSumValueByDataSource("bscopy_pv1")));
+                    values.add(formatValue(info.getSumValueByDataSource("bscopy_pv2")));
+                    values.add(formatValue(info.getSumValueByDataSource("bscopy_pv3")));
 
-                // 计算并添加COUNT公式结果
-                values.add(calculateCountFormula1(info));
-                values.add(calculateCountFormula2(info));
-                values.add(calculateCountFormula3(info));
-                values.add(calculateCountFormula4(info));
-                values.add(calculateCountFormula5(info));
-                values.add(calculateCountFormula6(info));
+                    // 计算并添加公式结果
+                    values.add(calculateSumFormula1(info));
+                    values.add(calculateSumFormula2(info));
+                    values.add(calculateSumFormula3(info));
+                    values.add(calculateSumFormula4(info));
+                    values.add(calculateSumFormula5(info));
+                    values.add(calculateSumFormula6(info));
+                }
 
                 // 写入一行数据
                 writer.write(String.join(",", values));
@@ -1407,13 +978,64 @@ public class DatabaseService {
                 processedCount++;
                 if (processedCount % BATCH_SIZE == 0) {
                     log.info("已处理 {}/{} 行 ({}%)",
-                        processedCount, totalSize,
-                        Math.round((processedCount * 100.0) / totalSize));
+                        processedCount, totalSize + tableGroups.size(), // 加上COUNT特殊字段的数量
+                        Math.round((processedCount * 100.0) / (totalSize + tableGroups.size())));
                 }
             }
         }
 
         log.info("CSV导出完成: {}", outputFile.getAbsolutePath());
+    }
+
+    @Data
+    public static class MoneyFieldSumInfo {
+        private final String tableName;
+        private final String dataSources;
+        private final Map<String, Long> countValues = new HashMap<>();
+        private final String moneyFields;
+        private final String sumField;
+        private final Map<String, BigDecimal> sumValues = new HashMap<>();
+
+        // 在构造函数中保存数据源和对应的COUNT值和SUM值
+        public MoneyFieldSumInfo(String tableName, TableMetaInfo metaInfo, String sumField) {
+            this.tableName = tableName;
+            this.dataSources = String.join(" | ", metaInfo.getDataSources());
+            this.moneyFields = metaInfo.getFormattedMoneyFields();
+            this.sumField = sumField;
+
+            // 直接保存每个数据源的COUNT值
+            for (String ds : metaInfo.getDataSources()) {
+                Long count = metaInfo.getRecordCounts().get(ds);
+                if (count != null) {
+                    countValues.put(ds.toLowerCase(), count);
+                }
+            }
+
+            // 直接保存每个数据源的SUM值
+            if (!"_COUNT".equals(sumField)) {
+                for (String ds : metaInfo.getDataSources()) {
+                    BigDecimal sum = metaInfo.getMoneySum(ds, sumField);
+                    if (sum != null) {
+                        sumValues.put(ds.toLowerCase(), sum);
+                    }
+                }
+            }
+        }
+
+        // 根据数据源名称获取COUNT值
+        public Long getCountValueByDataSource(String dataSource) {
+            return countValues.get(dataSource.toLowerCase());
+        }
+
+        // 根据数据源名称获取SUM值
+        public BigDecimal getSumValueByDataSource(String dataSource) {
+            return sumValues.get(dataSource.toLowerCase());
+        }
+
+        // 判断是否是COUNT特殊字段
+        public boolean isCountField() {
+            return "_COUNT".equals(sumField);
+        }
     }
 
     /**
