@@ -16,4 +16,10 @@ INSERT INTO inventory (sku, product_name, category, quantity, unit_price, suppli
 INSERT INTO TEST7 (transaction_id, transaction_date, customer_id, amount, payment_method, status, notes, processed_by, reference_no, batch_id) VALUES 
 ('TRX001', CURRENT_TIMESTAMP, 1, 1299.99, '支付宝', '已完成', '首次购买', 101, 'REF20230001', 'B202301'),
 ('TRX002', CURRENT_TIMESTAMP, 2, 2599.98, '微信支付', '已完成', '促销活动购买', 102, 'REF20230002', 'B202301'),
-('TRX003', CURRENT_TIMESTAMP, 3, 899.50, '银行卡', '处理中', '需要验证', 103, 'REF20230003', 'B202302'); 
+('TRX003', CURRENT_TIMESTAMP, 3, 899.50, '银行卡', '处理中', '需要验证', 103, 'REF20230003', 'B202302');
+
+-- 公式3测试数据
+INSERT INTO FORMULA3_TRUE (amount)
+VALUES (500.00); -- 与ora一致
+INSERT INTO FORMULA3_FALSE (amount)
+VALUES (503.00); -- 与ora不一致

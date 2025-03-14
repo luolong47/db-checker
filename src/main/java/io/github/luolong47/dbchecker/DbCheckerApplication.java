@@ -1,7 +1,7 @@
 package io.github.luolong47.dbchecker;
 
 import io.github.luolong47.dbchecker.config.DatabaseInitScriptsProperties;
-import io.github.luolong47.dbchecker.config.DbWhereConditionConfig;
+import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.service.DatabaseService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -14,7 +14,7 @@ import org.springframework.util.StopWatch;
 
 @Slf4j
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
-@EnableConfigurationProperties({DatabaseInitScriptsProperties.class, DbWhereConditionConfig.class})
+@EnableConfigurationProperties({DatabaseInitScriptsProperties.class, DbConfig.class})
 public class DbCheckerApplication {
 
     public static void main(String[] args) {

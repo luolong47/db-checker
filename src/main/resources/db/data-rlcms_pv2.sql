@@ -13,4 +13,24 @@ INSERT INTO subscriptions (customer_id, plan_name, start_date, end_date, status)
 -- TEST4表数据
 INSERT INTO TEST4 (value1, value2, value3, value4, value5, value6, value7, value8, value9, value10) VALUES 
 ('测试1', 123.45, CURRENT_TIMESTAMP, true, '描述1', 100, 10.4321, 'A1', '2023-01-15', '详细描述1'),
-('测试2', 678.90, CURRENT_TIMESTAMP, false, '描述2', 200, 20.8642, 'B2', '2023-02-20', '详细描述2'); 
+('测试2', 678.90, CURRENT_TIMESTAMP, false, '描述2', 200, 20.8642, 'B2', '2023-02-20', '详细描述2');
+
+-- 公式1测试数据
+INSERT INTO FORMULA1_TRUE (amount)
+VALUES (100.00); -- rlcms_pv2贡献100.00
+INSERT INTO FORMULA1_FALSE (amount)
+VALUES (100.00);
+-- rlcms_pv2贡献100.00
+
+-- 公式4测试数据
+INSERT INTO FORMULA4_TRUE (amount)
+VALUES (400.00); -- 与ora一致
+INSERT INTO FORMULA4_FALSE (amount)
+VALUES (401.00);
+-- 与ora不一致
+
+-- 公式5测试数据
+INSERT INTO FORMULA5_TRUE (amount)
+VALUES (600.00); -- 与ora一致
+INSERT INTO FORMULA5_FALSE (amount)
+VALUES (601.00); -- 与ora不一致

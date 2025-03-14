@@ -17,4 +17,10 @@ INSERT INTO TEST8 (metric_name, metric_value, collect_time, source, tag1, tag2, 
 ('cpu.usage', 75.5, CURRENT_TIMESTAMP, 'server1', 'prod', 'webapp', 'instance1', 'CPU使用率峰值', true, 50),
 ('memory.usage', 60.2, CURRENT_TIMESTAMP, 'server1', 'prod', 'webapp', 'instance1', '内存使用情况正常', true, 45),
 ('disk.free', 25.8, CURRENT_TIMESTAMP, 'server2', 'prod', 'database', 'instance1', '磁盘空间不足警告', true, 60),
-('network.latency', 120.5, CURRENT_TIMESTAMP, 'server3', 'prod', 'api', 'instance2', '网络延迟增加', true, 48); 
+('network.latency', 120.5, CURRENT_TIMESTAMP, 'server3', 'prod', 'api', 'instance2', '网络延迟增加', true, 48);
+
+-- 公式3测试数据
+INSERT INTO FORMULA3_TRUE (amount)
+VALUES (500.00); -- 与ora一致
+INSERT INTO FORMULA3_FALSE (amount)
+VALUES (504.00); -- 与ora不一致

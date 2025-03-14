@@ -16,4 +16,10 @@ INSERT INTO tasks (project_id, name, description, assigned_to, due_date, priorit
 INSERT INTO TEST6 (reference_code, title, description, created_by, created_date, modified_by, modified_date, status, priority, category) VALUES 
 ('REF001', '标题1', '描述内容1', 1, CURRENT_TIMESTAMP, 1, CURRENT_TIMESTAMP, '活跃', 1, '类别A'),
 ('REF002', '标题2', '描述内容2', 2, CURRENT_TIMESTAMP, 2, CURRENT_TIMESTAMP, '待审核', 2, '类别B'),
-('REF003', '标题3', '描述内容3', 3, CURRENT_TIMESTAMP, 3, CURRENT_TIMESTAMP, '已归档', 3, '类别C'); 
+('REF003', '标题3', '描述内容3', 3, CURRENT_TIMESTAMP, 3, CURRENT_TIMESTAMP, '已归档', 3, '类别C');
+
+-- 公式3测试数据
+INSERT INTO FORMULA3_TRUE (amount)
+VALUES (500.00); -- 与ora一致
+INSERT INTO FORMULA3_FALSE (amount)
+VALUES (501.00); -- 与ora不一致
