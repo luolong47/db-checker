@@ -16,6 +16,9 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -24,6 +27,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class TableMetadataService {
+
+    // 创建一个线程池，用于处理单个数据库内的表查询
+    private static final int MAX_THREADS_PER_DB = 10; // 每个数据库最大并发线程数
 
     /**
      * 从数据源获取表信息，同时获取表的记录数和金额字段的求和
@@ -43,11 +49,14 @@ public class TableMetadataService {
         List<TableInfo> tables = new ArrayList<>();
 
         // 使用Optional避免NullPointerException
-        Optional.ofNullable(jdbcTemplate.getDataSource())
+        return Optional.ofNullable(jdbcTemplate.getDataSource())
             .map(dataSource -> {
                 try (Connection connection = dataSource.getConnection()) {
                     DatabaseMetaData metaData = connection.getMetaData();
                     ResultSet tablesResultSet = metaData.getTables(null, null, "%", new String[]{"TABLE"});
+
+                    // 收集需要处理的表
+                    List<TableTask> tableTasks = new ArrayList<>();
 
                     while (tablesResultSet.next()) {
                         String tableName = tablesResultSet.getString("TABLE_NAME");
@@ -63,20 +72,20 @@ public class TableMetadataService {
                             continue;
                         }
 
-                        // 处理单个表
-                        try {
-                            TableInfo tableInfo = processTable(jdbcTemplate, tableName, dataSourceName, metaData, whereConditionConfig);
-                            if (tableInfo != null) {
-                                tables.add(tableInfo);
-                                // 标记该表为已处理
-                                resumeStateManager.markTableProcessed(tableName, dataSourceName);
-                            }
-                        } catch (Exception e) {
-                            log.error("处理表[{}]时出错: {}", tableName, e.getMessage(), e);
-                        }
+                        // 将需要处理的表添加到任务列表
+                        tableTasks.add(new TableTask(tableName, tableSchema));
                     }
 
                     tablesResultSet.close();
+                    log.info("数据源[{}]发现{}个需要处理的表", dataSourceName, tableTasks.size());
+
+                    // 使用线程池并发处理表
+                    if (!tableTasks.isEmpty()) {
+                        processTablesInParallel(jdbcTemplate, dataSourceName, metaData,
+                            tableTasks, whereConditionConfig,
+                            resumeStateManager, tables);
+                    }
+
                     log.info("从{}获取到{}个非系统表", dataSourceName, tables.size());
 
                     // 标记该数据库为已处理
@@ -91,8 +100,78 @@ public class TableMetadataService {
                 log.error("数据源[{}]的DataSource为null", dataSourceName);
                 return Collections.emptyList();
             });
+    }
 
-        return tables;
+    /**
+     * 并发处理多个表
+     */
+    private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName,
+                                         DatabaseMetaData metaData, List<TableTask> tableTasks,
+                                         DbConfig whereConditionConfig,
+                                         ResumeStateManager resumeStateManager,
+                                         List<TableInfo> resultTables) {
+
+        // 创建线程池，控制并发数量
+        ExecutorService executor = Executors.newFixedThreadPool(
+            Math.min(MAX_THREADS_PER_DB, tableTasks.size()));
+
+        // 创建CompletableFuture任务列表
+        List<CompletableFuture<TableInfo>> futures = new ArrayList<>();
+
+        for (TableTask task : tableTasks) {
+            CompletableFuture<TableInfo> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    log.debug("开始处理表: {}", task.tableName);
+                    TableInfo tableInfo = processTable(jdbcTemplate, task.tableName, dataSourceName, metaData, whereConditionConfig);
+
+                    if (tableInfo != null) {
+                        // 使用synchronized确保线程安全
+                        synchronized (resumeStateManager) {
+                            // 标记该表为已处理
+                            resumeStateManager.markTableProcessed(task.tableName, dataSourceName);
+                        }
+                        return tableInfo;
+                    }
+                } catch (Exception e) {
+                    log.error("处理表[{}]时出错: {}", task.tableName, e.getMessage(), e);
+                }
+                return null;
+            }, executor);
+
+            futures.add(future);
+        }
+
+        // 等待所有任务完成并收集结果
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        for (CompletableFuture<TableInfo> future : futures) {
+            try {
+                TableInfo tableInfo = future.get();
+                if (tableInfo != null) {
+                    synchronized (resultTables) {
+                        resultTables.add(tableInfo);
+                    }
+                }
+            } catch (Exception e) {
+                log.error("获取表处理结果时出错: {}", e.getMessage(), e);
+            }
+        }
+
+        // 关闭线程池
+        executor.shutdown();
+    }
+
+    /**
+     * 表任务类，用于存储需要处理的表信息
+     */
+    private static class TableTask {
+        private final String tableName;
+        private final String tableSchema;
+
+        public TableTask(String tableName, String tableSchema) {
+            this.tableName = tableName;
+            this.tableSchema = tableSchema;
+        }
     }
 
     /**

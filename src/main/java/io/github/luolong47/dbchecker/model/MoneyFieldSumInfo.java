@@ -22,36 +22,36 @@ public class MoneyFieldSumInfo {
     private final boolean isCountField;
     // 原始表信息引用
     private final TableInfo tableInfo;
-    
+
     /**
      * 表所在的schema
      */
     private String schema;
-    
+
     /**
      * 表所在的数据源列表
      */
     private String dataSources;
-    
+
     /**
      * 表记录数量
      */
     @Alias("COUNT")
     private String recordCounts;
-    
+
     /**
      * 各数据源中表的记录数量
      * key: COUNT_ORA, COUNT_RLCMS_BASE, COUNT_RLCMS_PV1 etc.
      * value: 对应的记录数
      */
     private Map<String, Long> countValues = new HashMap<>();
-    
+
     /**
      * 金额字段
      */
     @Alias("金额字段")
     private String moneyFields;
-    
+
     /**
      * 各数据源中金额字段的SUM值
      * key: SUM_ORA, SUM_RLCMS_BASE, SUM_RLCMS_PV1 etc.
@@ -99,14 +99,15 @@ public class MoneyFieldSumInfo {
                 }
             }
         }
-        this.moneyFields = moneyField;
+        // 设置金额字段名称，如果是记录数统计字段，则设置为"记录数统计"
+        this.moneyFields = isCountField ? "记录数统计" : moneyField;
     }
 
     /**
      * 设置指定数据源的记录数量（基于数据源名称）
-     * 
+     *
      * @param sourceName 数据源名称
-     * @param value 记录数量
+     * @param value      记录数量
      */
     public void setCountValueByName(String sourceName, Long value) {
         countValues.put("COUNT_" + sourceName.toUpperCase().replace('-', '_'), value);
@@ -114,9 +115,9 @@ public class MoneyFieldSumInfo {
 
     /**
      * 设置指定数据源的SUM值（基于数据源名称）
-     * 
+     *
      * @param sourceName 数据源名称
-     * @param value SUM值
+     * @param value      SUM值
      */
     public void setSumValueByName(String sourceName, BigDecimal value) {
         sumValues.put("SUM_" + sourceName.toUpperCase().replace('-', '_'), value);
@@ -133,6 +134,13 @@ public class MoneyFieldSumInfo {
      * 获取表的所有金额字段，以逗号分隔
      */
     public String getMoneyFields() {
+        return isCountField ? "记录数统计" : sumField;
+    }
+
+    /**
+     * 获取统计项名称
+     */
+    public String getSumField() {
         return isCountField ? "_COUNT" : sumField;
     }
 

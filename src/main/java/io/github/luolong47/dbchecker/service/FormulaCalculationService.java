@@ -214,7 +214,7 @@ public class FormulaCalculationService {
                         .ifPresent(enrichedDataList::add);
                     processedCountTables.add(tableName);
                 }
-                
+
                 // 添加所有金额字段SUM信息
                 enrichedDataList.addAll(tableData);
             });
