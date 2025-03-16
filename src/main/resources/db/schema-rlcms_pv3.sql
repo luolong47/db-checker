@@ -1,86 +1,26 @@
--- rlcms_pv3数据库表结构
-DROP TABLE IF EXISTS departments;
-
-CREATE TABLE departments (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  location VARCHAR(100),
-  budget DECIMAL(15,2),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 员工表结构
-DROP TABLE IF EXISTS employees;
-
-CREATE TABLE employees (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  department_id INT NOT NULL,
-  first_name VARCHAR(50) NOT NULL,
-  last_name VARCHAR(50) NOT NULL,
-  position VARCHAR(100),
-  salary DECIMAL(10,2),
-  hire_date DATE NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- TEST5表结构
-DROP TABLE IF EXISTS TEST5;
-
-CREATE TABLE TEST5 (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  code VARCHAR(20),
-  name VARCHAR(100),
-  category VARCHAR(50),
-  active BOOLEAN,
-  price DECIMAL(10,2),
-  discount DECIMAL(5,2),
-  stock INT,
-  min_stock INT,
-  supplier_id INT,
-  last_order_date DATE
-);
-
--- 公式1测试表
-DROP TABLE IF EXISTS FORMULA1_TRUE;
-CREATE TABLE FORMULA1_TRUE
+-- 创建订单表
+CREATE TABLE IF NOT EXISTS ORDERS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id           INT PRIMARY KEY,
+    user_id      INT,
+    order_date   DATE,
+    total_amount DECIMAL(10, 2)
 );
 
-DROP TABLE IF EXISTS FORMULA1_FALSE;
-CREATE TABLE FORMULA1_FALSE
+-- 创建销售表
+CREATE TABLE IF NOT EXISTS SALES
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id         INT PRIMARY KEY,
+    product_id INT,
+    quantity   INT,
+    sale_date  DATE,
+    amount     DECIMAL(10, 2)
 );
 
--- 公式4测试表
-DROP TABLE IF EXISTS FORMULA4_TRUE;
-CREATE TABLE FORMULA4_TRUE
+-- 创建分类表
+CREATE TABLE IF NOT EXISTS CATEGORY
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA4_FALSE;
-CREATE TABLE FORMULA4_FALSE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
--- 公式5测试表
-DROP TABLE IF EXISTS FORMULA5_TRUE;
-CREATE TABLE FORMULA5_TRUE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA5_FALSE;
-CREATE TABLE FORMULA5_FALSE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id          INT PRIMARY KEY,
+    name        VARCHAR(50),
+    description VARCHAR(255)
 ); 

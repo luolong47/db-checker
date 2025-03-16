@@ -1,179 +1,89 @@
--- ora数据库表结构
-DROP TABLE IF EXISTS users;
-
-CREATE TABLE users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(50) NOT NULL,
-  email VARCHAR(100) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 第二个数据库表结构
-DROP TABLE IF EXISTS products;
-
-CREATE TABLE products (
-                          id INT AUTO_INCREMENT PRIMARY KEY,
-                          name VARCHAR(100) NOT NULL,
-                          price DECIMAL(10, 2) NOT NULL,
-                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 第三个数据库表结构
-DROP TABLE IF EXISTS orders;
-
-CREATE TABLE orders (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        product_id INT NOT NULL,
-                        quantity INT NOT NULL,
-                        order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- TEST1表结构
-DROP TABLE IF EXISTS TEST1;
-
-CREATE TABLE TEST1 (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  amount1 NUMBER(17,3),
-  amount2 NUMBER(17,3),
-  amount3 NUMBER(17,3),
-  amount4 NUMBER(17,3),
-  amount5 NUMBER(17,3),
-  amount6 NUMBER(17,3),
-  amount7 NUMBER(17,3),
-  amount8 NUMBER(17,3),
-  amount9 NUMBER(17,3),
-  amount10 NUMBER(17,3)
-);
-
--- 公式1测试表 (ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3)
-DROP TABLE IF EXISTS FORMULA1_TRUE;
-CREATE TABLE FORMULA1_TRUE
+-- 创建产品表
+CREATE TABLE IF NOT EXISTS PRODUCTS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id    INT PRIMARY KEY,
+    name  VARCHAR(100),
+    price DECIMAL(10, 2)
 );
 
-DROP TABLE IF EXISTS FORMULA1_FALSE;
-CREATE TABLE FORMULA1_FALSE
+-- 创建订单表
+CREATE TABLE IF NOT EXISTS ORDERS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id           INT PRIMARY KEY,
+    user_id      INT,
+    order_date   DATE,
+    total_amount DECIMAL(10, 2)
 );
 
-DROP TABLE IF EXISTS FORMULA1_NA;
-CREATE TABLE FORMULA1_NA
+-- 创建用户表
+CREATE TABLE IF NOT EXISTS USERS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id            INT PRIMARY KEY,
+    username      VARCHAR(50),
+    email         VARCHAR(100),
+    register_date DATE
 );
 
--- 公式2测试表 (ora = rlcms_base)
-DROP TABLE IF EXISTS FORMULA2_TRUE;
-CREATE TABLE FORMULA2_TRUE
+-- 创建客户表
+CREATE TABLE IF NOT EXISTS CUSTOMERS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id      INT PRIMARY KEY,
+    name    VARCHAR(100),
+    contact VARCHAR(100),
+    address VARCHAR(255)
 );
 
-DROP TABLE IF EXISTS FORMULA2_FALSE;
-CREATE TABLE FORMULA2_FALSE
+-- 创建员工表
+CREATE TABLE IF NOT EXISTS EMPLOYEES
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id       INT PRIMARY KEY,
+    name     VARCHAR(100),
+    position VARCHAR(100),
+    salary   DECIMAL(10, 2)
 );
 
-DROP TABLE IF EXISTS FORMULA2_NA;
-CREATE TABLE FORMULA2_NA
+-- 创建销售表
+CREATE TABLE IF NOT EXISTS SALES
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id         INT PRIMARY KEY,
+    product_id INT,
+    quantity   INT,
+    sale_date  DATE,
+    amount     DECIMAL(10, 2)
 );
 
--- 公式3测试表 (ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3)
-DROP TABLE IF EXISTS FORMULA3_TRUE;
-CREATE TABLE FORMULA3_TRUE
+-- 创建库存表
+CREATE TABLE IF NOT EXISTS INVENTORY
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id           INT PRIMARY KEY,
+    product_id   INT,
+    quantity     INT,
+    last_updated DATE
 );
 
-DROP TABLE IF EXISTS FORMULA3_FALSE;
-CREATE TABLE FORMULA3_FALSE
+-- 创建供应商表
+CREATE TABLE IF NOT EXISTS SUPPLIERS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id      INT PRIMARY KEY,
+    name    VARCHAR(100),
+    contact VARCHAR(100),
+    address VARCHAR(255)
 );
 
-DROP TABLE IF EXISTS FORMULA3_NA;
-CREATE TABLE FORMULA3_NA
+-- 创建分类表
+CREATE TABLE IF NOT EXISTS CATEGORY
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id          INT PRIMARY KEY,
+    name        VARCHAR(50),
+    description VARCHAR(255)
 );
 
--- 公式4测试表 (ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3)
-DROP TABLE IF EXISTS FORMULA4_TRUE;
-CREATE TABLE FORMULA4_TRUE
+-- 创建支付表
+CREATE TABLE IF NOT EXISTS PAYMENTS
 (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA4_FALSE;
-CREATE TABLE FORMULA4_FALSE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA4_NA;
-CREATE TABLE FORMULA4_NA
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
--- 公式5测试表 (ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3)
-DROP TABLE IF EXISTS FORMULA5_TRUE;
-CREATE TABLE FORMULA5_TRUE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA5_FALSE;
-CREATE TABLE FORMULA5_FALSE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA5_NA;
-CREATE TABLE FORMULA5_NA
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
--- 公式6测试表 (ora = rlcms_pv1)
-DROP TABLE IF EXISTS FORMULA6_TRUE;
-CREATE TABLE FORMULA6_TRUE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA6_FALSE;
-CREATE TABLE FORMULA6_FALSE
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
-);
-
-DROP TABLE IF EXISTS FORMULA6_NA;
-CREATE TABLE FORMULA6_NA
-(
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    amount DECIMAL(10, 2) NOT NULL
+    id           INT PRIMARY KEY,
+    order_id     INT,
+    payment_date DATE,
+    amount       DECIMAL(10, 2),
+    method       VARCHAR(50)
 ); 

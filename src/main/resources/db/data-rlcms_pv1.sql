@@ -1,40 +1,43 @@
--- rlcms_pv1数据库数据
-INSERT INTO orders (user_id, product_id, quantity) VALUES 
-(1, 1, 2),
-(2, 2, 1),
-(3, 3, 3),
-(1, 3, 1); 
+-- 插入产品数据 (对于公式6，会有TRUE结果)
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (1, '产品A', 199.99);
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (2, '产品B', 299.99);
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (3, '产品C', 99.99);
 
--- TEST1表数据
-INSERT INTO TEST1 (amount1, amount2, amount3, amount4, amount5, amount6, amount7, amount8, amount9, amount10) VALUES 
-(5100.123, 5200.234, 5300.345, 5400.456, 5500.567, 5600.678, 5700.789, 5800.890, 5900.901, 6000.012),
-(6100.123, 6200.234, 6300.345, 6400.456, 6500.567, 6600.678, 6700.789, 6800.890, 6900.901, 7000.012),
-(7100.123, 7200.234, 7300.345, 7400.456, 7500.567, 7600.678, 7700.789, 7800.890, 7900.901, 8000.012),
-(8100.123, 8200.234, 8300.345, 8400.456, 8500.567, 8600.678, 8700.789, 8800.890, 8900.901, 9000.012);
+-- 插入订单数据 (对于公式1，会有部分结果)
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (1, 1, '2025-01-01', 199.99);
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (2, 2, '2025-01-02', 299.99);
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (3, 3, '2025-01-03', 399.99);
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (4, 1, '2025-01-04', 499.99);
 
--- 公式1测试数据
-INSERT INTO FORMULA1_TRUE (amount)
-VALUES (100.00); -- rlcms_pv1贡献100.00
-INSERT INTO FORMULA1_FALSE (amount)
-VALUES (100.00);
--- rlcms_pv1贡献100.00
+-- 插入用户数据 (对于公式6，会有TRUE结果)
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (1, 'user1', 'user1@example.com', '2024-01-01');
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (2, 'user2', 'user2@example.com', '2024-01-02');
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (3, 'user3', 'user3@example.com', '2024-01-03');
 
--- 公式4测试数据
-INSERT INTO FORMULA4_TRUE (amount)
-VALUES (400.00); -- 与ora一致
-INSERT INTO FORMULA4_FALSE (amount)
-VALUES (400.50);
--- 与ora不一致
+-- 插入客户数据 (对于公式4，会有N/A结果，因为数据与ora不同)
+INSERT INTO CUSTOMERS (id, name, contact, address)
+VALUES (1, '客户A', '13800001111', '北京市');
+INSERT INTO CUSTOMERS (id, name, contact, address)
+VALUES (2, '客户B', '13800002222', '上海市');
 
--- 公式5测试数据
-INSERT INTO FORMULA5_TRUE (amount)
-VALUES (600.00); -- 与ora一致
-INSERT INTO FORMULA5_FALSE (amount)
-VALUES (600.50);
--- 与ora不一致
+-- 插入销售数据 (对于公式2，会有FALSE结果)
+INSERT INTO SALES (id, product_id, quantity, sale_date, amount)
+VALUES (1, 1, 1, '2025-01-01', 199.99);
+INSERT INTO SALES (id, product_id, quantity, sale_date, amount)
+VALUES (2, 2, 1, '2025-01-02', 299.99);
 
--- 公式6测试数据
-INSERT INTO FORMULA6_TRUE (amount)
-VALUES (700.00); -- 与ora一致
-INSERT INTO FORMULA6_FALSE (amount)
-VALUES (701.00); -- 与ora不一致
+-- 插入支付数据 (对于公式4，会有FALSE结果)
+INSERT INTO PAYMENTS (id, order_id, payment_date, amount, method)
+VALUES (1, 1, '2025-01-01', 199.99, '支付宝');
+INSERT INTO PAYMENTS (id, order_id, payment_date, amount, method)
+VALUES (2, 2, '2025-01-02', 299.99, '微信支付');

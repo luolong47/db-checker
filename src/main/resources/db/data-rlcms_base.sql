@@ -1,31 +1,35 @@
--- rlcms_base数据库数据
-INSERT INTO products (name, price) VALUES 
-('产品1', 99.99),
-('产品2', 199.99),
-('产品3', 299.99); 
+-- 插入产品数据
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (1, '产品A', 199.99);
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (2, '产品B', 299.99);
+INSERT INTO PRODUCTS (id, name, price)
+VALUES (3, '产品C', 99.99);
 
--- TEST1表数据
-INSERT INTO TEST1 (amount1, amount2, amount3, amount4, amount5, amount6, amount7, amount8, amount9, amount10) VALUES 
-(2100.111, 2200.222, 2300.333, 2400.444, 2500.555, 2600.666, 2700.777, 2800.888, 2900.999, 3000.000),
-(3100.111, 3200.222, 3300.333, 3400.444, 3500.555, 3600.666, 3700.777, 3800.888, 3900.999, 4000.000),
-(4100.111, 4200.222, 4300.333, 4400.444, 4500.555, 4600.666, 4700.777, 4800.888, 4900.999, 5000.000);
+-- 插入订单数据 (与ora不同，以便产生FALSE结果)
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (1, 1, '2025-01-01', 199.99);
+INSERT INTO ORDERS (id, user_id, order_date, total_amount)
+VALUES (2, 2, '2025-01-02', 299.99);
 
--- 公式2测试数据
-INSERT INTO FORMULA2_TRUE (amount)
-VALUES (200.00); -- 与ora一致
-INSERT INTO FORMULA2_FALSE (amount)
-VALUES (201.00);
--- 与ora不一致
+-- 插入用户数据 (与ora相同，以便产生TRUE结果)
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (1, 'user1', 'user1@example.com', '2024-01-01');
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (2, 'user2', 'user2@example.com', '2024-01-02');
+INSERT INTO USERS (id, username, email, register_date)
+VALUES (3, 'user3', 'user3@example.com', '2024-01-03');
 
--- 公式3测试数据
-INSERT INTO FORMULA3_TRUE (amount)
-VALUES (500.00); -- 与ora一致
-INSERT INTO FORMULA3_FALSE (amount)
-VALUES (502.00);
--- 与ora不一致
+-- 插入员工数据 (与ora相同，以便产生TRUE结果)
+INSERT INTO EMPLOYEES (id, name, position, salary)
+VALUES (1, '员工A', '经理', 15000);
+INSERT INTO EMPLOYEES (id, name, position, salary)
+VALUES (2, '员工B', '主管', 10000);
+INSERT INTO EMPLOYEES (id, name, position, salary)
+VALUES (3, '员工C', '销售', 7000);
 
--- 公式5测试数据
-INSERT INTO FORMULA5_TRUE (amount)
-VALUES (600.00); -- 与ora一致
-INSERT INTO FORMULA5_FALSE (amount)
-VALUES (598.00); -- 与ora不一致
+-- 插入库存数据 (与ora不同，以便产生N/A结果)
+INSERT INTO INVENTORY (id, product_id, quantity, last_updated)
+VALUES (1, 1, 90, '2025-01-01');
+INSERT INTO INVENTORY (id, product_id, quantity, last_updated)
+VALUES (2, 2, 45, '2025-01-01');
