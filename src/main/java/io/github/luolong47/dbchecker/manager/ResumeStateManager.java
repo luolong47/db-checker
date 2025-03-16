@@ -38,11 +38,11 @@ public class ResumeStateManager {
     /**
      * 获取断点续跑状态文件路径
      */
-    private String getResumeFilePath() {
+    private File getResumeFilePath() {
         if (StrUtil.isNotEmpty(config.getResumeFile())) {
-            return config.getResumeFile();
+            return new File(config.getResumeFile());
         }
-        return config.getExportDirectory() + "/resume_state.json";
+        return new File(config.getExportDirectory(), "/resume_state.json");
     }
 
     /**
@@ -56,7 +56,7 @@ public class ResumeStateManager {
         // 只在断点续跑模式下加载状态
         if ("RESUME".equalsIgnoreCase(runMode)) {
             try {
-                File file = new File(getResumeFilePath());
+                File file = getResumeFilePath();
                 if (file.exists()) {
                     log.info("检测到断点续跑文件: {}", getResumeFilePath());
 
