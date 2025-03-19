@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -38,13 +39,76 @@ public class FormulaCalculationService {
     private final Map<Integer, FormulaStrategy> formulaStrategies = new HashMap<>();
     private final Map<Integer, CountFormulaStrategy> countStrategies = new HashMap<>();
 
+    // 缓存表名到适用公式的映射
+    private final Map<String, List<String>> applicableFormulasCache = new ConcurrentHashMap<>();
+    // 缓存表名和公式编号到应用结果的映射
+    private final Map<String, Map<Integer, Boolean>> shouldApplyFormulaCache = new ConcurrentHashMap<>();
+    // 缓存求和值
+    private final Map<String, Map<String, BigDecimal>> sumValuesCache = new ConcurrentHashMap<>();
+    // 缓存计数值
+    private final Map<String, Map<String, Long>> countValuesCache = new ConcurrentHashMap<>();
+
     // 配置类
     private final DbConfig config;
 
     public FormulaCalculationService(DbConfig config) {
         this.config = config;
-        // 初始化公式策略
         initFormulaStrategies();
+    }
+
+    /**
+     * 获取适用于表的公式列表
+     */
+    public List<String> getApplicableFormulas(String tableName) {
+        return applicableFormulasCache.computeIfAbsent(tableName, k -> {
+            List<String> formulas = new ArrayList<>();
+            for (int i = 1; i <= 6; i++) {
+                if (shouldApplyFormula(tableName, i)) {
+                    formulas.add(FORMULA_DESCRIPTIONS.get(i));
+                }
+            }
+            return formulas;
+        });
+    }
+
+    /**
+     * 判断是否应该应用公式
+     */
+    public boolean shouldApplyFormula(String tableName, int formulaNumber) {
+        return shouldApplyFormulaCache
+            .computeIfAbsent(tableName, k -> new ConcurrentHashMap<>())
+            .computeIfAbsent(formulaNumber, k -> {
+                Set<String> applicableTables = formulaTableMap.get(formulaNumber);
+                return applicableTables != null && applicableTables.contains(tableName);
+            });
+    }
+
+    /**
+     * 收集求和值并缓存
+     */
+    private Map<String, BigDecimal> collectSumValues(MoneyFieldSumInfo info, String[] dataSources) {
+        String cacheKey = info.getTableName() + ":" + info.getSumField();
+        return sumValuesCache.computeIfAbsent(cacheKey, k -> {
+            Map<String, BigDecimal> values = new HashMap<>();
+            for (String ds : dataSources) {
+                values.put(ds, info.getSumValueByDataSource(ds));
+            }
+            return values;
+        });
+    }
+
+    /**
+     * 收集计数值并缓存
+     */
+    private Map<String, Long> collectCountValues(MoneyFieldSumInfo info, String[] dataSources) {
+        String cacheKey = info.getTableName() + ":_COUNT";
+        return countValuesCache.computeIfAbsent(cacheKey, k -> {
+            Map<String, Long> values = new HashMap<>();
+            for (String ds : dataSources) {
+                values.put(ds, info.getCountValueByDataSource(ds));
+            }
+            return values;
+        });
     }
 
     /**
@@ -265,77 +329,57 @@ public class FormulaCalculationService {
         }
 
         // 为每个适用的公式创建一行结果
-        for (String formula : applicableFormulas) {
+        for (int i = 0; i < applicableFormulas.size(); i++) {
+            String formula = applicableFormulas.get(i);
             List<String> row = new ArrayList<>(baseValues);
-            // 从公式字符串中提取编号，跳过"公式X："前缀
-            int formulaNumber = Integer.parseInt(formula.substring(2, formula.indexOf("：")));
+            try {
+                // 获取公式编号 - 直接从公式描述的map中查找对应的编号
+                int formulaNumber = -1;
+                for (Map.Entry<Integer, String> entry : FORMULA_DESCRIPTIONS.entrySet()) {
+                    if (entry.getValue().equals(formula)) {
+                        formulaNumber = entry.getKey();
+                        break;
+                    }
+                }
 
-            // 根据字段类型选择不同的公式策略
-            String result;
-            String diffDescription = "";
-            String diffValue = "";
-            if (info.isCountField()) {
-                // 对于记录数统计字段，使用计数公式策略
-                result = countStrategies.get(formulaNumber).calculate(info);
-                if ("FALSE".equals(result)) {
-                    DiffInfo diffInfo = countStrategies.get(formulaNumber).getDiffInfo(info);
-                    diffDescription = diffInfo.getDescription();
-                    diffValue = diffInfo.getValue();
+                if (formulaNumber == -1) {
+                    log.warn("无法确定公式编号: {}", formula);
+                    continue;
                 }
-            } else {
-                // 对于金额字段，使用求和公式策略
-                result = formulaStrategies.get(formulaNumber).calculateForSum(info);
-                if ("FALSE".equals(result)) {
-                    DiffInfo diffInfo = formulaStrategies.get(formulaNumber).getDiffInfo(info);
-                    diffDescription = diffInfo.getDescription();
-                    diffValue = diffInfo.getValue();
+
+                // 根据字段类型选择不同的公式策略
+                String result;
+                String diffDescription = "";
+                String diffValue = "";
+                if (info.isCountField()) {
+                    // 对于记录数统计字段，使用计数公式策略
+                    result = countStrategies.get(formulaNumber).calculate(info);
+                    if ("FALSE".equals(result)) {
+                        DiffInfo diffInfo = countStrategies.get(formulaNumber).getDiffInfo(info);
+                        diffDescription = diffInfo.getDescription();
+                        diffValue = diffInfo.getValue();
+                    }
+                } else {
+                    // 对于金额字段，使用求和公式策略
+                    result = formulaStrategies.get(formulaNumber).calculateForSum(info);
+                    if ("FALSE".equals(result)) {
+                        DiffInfo diffInfo = formulaStrategies.get(formulaNumber).getDiffInfo(info);
+                        diffDescription = diffInfo.getDescription();
+                        diffValue = diffInfo.getValue();
+                    }
                 }
+
+                row.add(formula);
+                row.add(result);
+                row.add(diffValue);
+                row.add(diffDescription);
+                results.add(row);
+            } catch (Exception e) {
+                log.warn("处理公式时发生错误: {}, 错误: {}", formula, e.getMessage());
             }
-
-            row.add(formula);
-            row.add(result);
-            row.add(diffValue);
-            row.add(diffDescription);
-            results.add(row);
         }
 
         return results;
-    }
-
-    /**
-     * 获取应用于指定表的公式名称列表（带描述）
-     */
-    public List<String> getApplicableFormulas(String tableName) {
-        List<String> formulas = new ArrayList<>();
-
-        for (int i = 1; i <= 6; i++) {
-            if (shouldApplyFormula(tableName, i)) {
-                String formulaDesc = FORMULA_DESCRIPTIONS.getOrDefault(i, "");
-                formulas.add("公式" + i + "：" + formulaDesc);
-            }
-        }
-
-        return formulas;
-    }
-
-    /**
-     * 检查表是否应当应用特定公式
-     */
-    public boolean shouldApplyFormula(String tableName, int formulaNumber) {
-        // 如果表名有引号，去掉引号
-        String normalizedTableName = tableName.startsWith("\"") && tableName.endsWith("\"")
-            ? tableName.substring(1, tableName.length() - 1)
-            : tableName;
-
-        // 获取适用表集合，如果为空则返回false
-        return Optional.ofNullable(formulaTableMap.get(formulaNumber))
-            .filter(tables -> !tables.isEmpty())
-            .map(tables ->
-                tables.stream()
-                    .map(String::trim)
-                    .anyMatch(configTable -> configTable.equalsIgnoreCase(normalizedTableName.trim()))
-            )
-            .orElse(false);
     }
 
     /**
@@ -708,28 +752,6 @@ public class FormulaCalculationService {
         default DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
             return new DiffInfo("", "");
         }
-    }
-
-    /**
-     * 收集各数据源的SUM值
-     */
-    private Map<String, BigDecimal> collectSumValues(MoneyFieldSumInfo info, String[] dataSources) {
-        Map<String, BigDecimal> values = new HashMap<>();
-        for (String ds : dataSources) {
-            values.put(ds, info.getSumValueByDataSource(ds));
-        }
-        return values;
-    }
-
-    /**
-     * 收集各数据源的COUNT值
-     */
-    private Map<String, Long> collectCountValues(MoneyFieldSumInfo info, String[] dataSources) {
-        Map<String, Long> values = new HashMap<>();
-        for (String ds : dataSources) {
-            values.put(ds, info.getCountValueByDataSource(ds));
-        }
-        return values;
     }
 
     /**

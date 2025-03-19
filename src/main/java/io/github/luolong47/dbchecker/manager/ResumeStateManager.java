@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -25,8 +26,15 @@ import java.util.stream.Collectors;
 public class ResumeStateManager {
 
     // 存储断点续跑状态
-    private final Set<String> processedDatabases = new HashSet<>();
-    private final Set<String> processedTables = new HashSet<>();
+    private final Set<String> processedDatabases = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Set<String> processedTables = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    // 缓存数据库处理状态
+    private final Map<String, Boolean> databaseProcessingCache = new ConcurrentHashMap<>();
+    // 缓存表处理状态
+    private final Map<String, Boolean> tableProcessingCache = new ConcurrentHashMap<>();
+    // 缓存重跑数据库列表
+    private final Map<String, Set<String>> rerunDatabasesCache = new ConcurrentHashMap<>();
 
     // 引入配置类
     private final DbConfig config;
@@ -210,80 +218,74 @@ public class ResumeStateManager {
     }
 
     /**
-     * 标记数据库为已处理
-     */
-    public void markDatabaseProcessed(String dataSourceName) {
-        processedDatabases.add(dataSourceName);
-    }
-
-    /**
-     * 标记表为已处理
-     */
-    public void markTableProcessed(String tableName, String dataSourceName) {
-        // 标识符：数据源名称 + 表名
-        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
-        processedTables.add(tableKey);
-    }
-
-    /**
      * 检查数据库是否应该处理（根据运行模式和已处理状态）
      */
     public boolean shouldProcessDatabase(String dataSourceName, String runMode, String rerunDatabases) {
-        // 如果是全量重跑，总是处理
         if ("FULL".equalsIgnoreCase(runMode)) {
             return true;
         }
 
-        // 使用Java 8的函数式风格处理逻辑
-        return Optional.of(dataSourceName)
-            .map(name -> {
-                // 如果是指定库重跑，检查是否在指定列表中
-                if (!StrUtil.isEmpty(rerunDatabases)) {
-                    boolean inRerunList = Arrays.stream(rerunDatabases.split(","))
-                        .map(String::trim)
-                        .map(String::toLowerCase)
-                        .anyMatch(db -> db.equals(name.toLowerCase()));
-
-                    return inRerunList || !processedDatabases.contains(name);
-                }
-
-                // 如果是断点续跑模式，检查是否已处理
-                return !"RESUME".equalsIgnoreCase(runMode) || !processedDatabases.contains(name);
-            })
-            .orElse(false);
+        String cacheKey = dataSourceName + ":" + runMode + ":" + rerunDatabases;
+        return databaseProcessingCache.computeIfAbsent(cacheKey, k -> {
+            if (!StrUtil.isEmpty(rerunDatabases)) {
+                Set<String> rerunSet = getRerunDatabasesSet(rerunDatabases);
+                return rerunSet.contains(dataSourceName.toLowerCase()) || !processedDatabases.contains(dataSourceName);
+            }
+            return !processedDatabases.contains(dataSourceName);
+        });
     }
 
     /**
      * 检查表是否应该处理（根据运行模式和已处理状态）
      */
     public boolean shouldProcessTable(String tableName, String dataSourceName, String runMode, String rerunDatabases) {
-        // 标识符：数据源名称 + 表名
-        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
-
-        // 如果是全量重跑，总是处理
         if ("FULL".equalsIgnoreCase(runMode)) {
             return true;
         }
 
-        // 使用Java 8特性减少嵌套条件
-        return Optional.of(dataSourceName)
-            .map(name -> {
-                // 如果是指定库重跑，检查是否在指定列表中
-                if (!StrUtil.isEmpty(rerunDatabases)) {
-                    boolean inRerunList = Arrays.stream(rerunDatabases.split(","))
-                        .map(String::trim)
-                        .map(String::toLowerCase)
-                        .anyMatch(db -> db.equals(name.toLowerCase()));
+        String cacheKey = tableName + ":" + dataSourceName + ":" + runMode + ":" + rerunDatabases;
+        return tableProcessingCache.computeIfAbsent(cacheKey, k -> {
+            String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
+            if (!StrUtil.isEmpty(rerunDatabases)) {
+                Set<String> rerunSet = getRerunDatabasesSet(rerunDatabases);
+                return rerunSet.contains(dataSourceName.toLowerCase()) || !processedTables.contains(tableKey);
+            }
+            return !processedTables.contains(tableKey);
+        });
+    }
 
-                    if (inRerunList) {
-                        log.debug("表[{}]在需要重跑的数据库[{}]中，符合处理条件", tableName, name);
-                        return true;
-                    }
-                }
+    /**
+     * 获取重跑数据库集合（带缓存）
+     */
+    private Set<String> getRerunDatabasesSet(String rerunDatabases) {
+        return rerunDatabasesCache.computeIfAbsent(rerunDatabases, k ->
+            Arrays.stream(rerunDatabases.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet())
+        );
+    }
 
-                // 断点续跑模式，检查是否已处理
-                return !"RESUME".equalsIgnoreCase(runMode) || !processedTables.contains(tableKey);
-            })
-            .orElse(false);
+    /**
+     * 标记数据库为已处理
+     */
+    public void markDatabaseProcessed(String dataSourceName) {
+        processedDatabases.add(dataSourceName);
+        // 清除相关缓存
+        databaseProcessingCache.keySet().stream()
+            .filter(key -> key.startsWith(dataSourceName + ":"))
+            .forEach(databaseProcessingCache::remove);
+    }
+
+    /**
+     * 标记表为已处理
+     */
+    public void markTableProcessed(String tableName, String dataSourceName) {
+        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
+        processedTables.add(tableKey);
+        // 清除相关缓存
+        tableProcessingCache.keySet().stream()
+            .filter(key -> key.startsWith(tableName + ":" + dataSourceName + ":"))
+            .forEach(tableProcessingCache::remove);
     }
 } 

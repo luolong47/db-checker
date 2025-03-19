@@ -11,12 +11,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -30,6 +28,14 @@ public class TableMetadataService {
 
     // 创建一个线程池，用于处理单个数据库内的表查询
     private static final int MAX_THREADS_PER_DB = 10; // 每个数据库最大并发线程数
+
+    // 缓存数值类型
+    private static final Set<Integer> NUMERIC_TYPES = new HashSet<>(Arrays.asList(
+        Types.NUMERIC, Types.DECIMAL, Types.DOUBLE, Types.FLOAT,
+        Types.INTEGER, Types.BIGINT, Types.SMALLINT, Types.TINYINT
+    ));
+    // 缓存schema和table的包含关系
+    private final Map<String, Boolean> schemaTableCache = new ConcurrentHashMap<>();
 
     /**
      * 从数据源获取表信息，同时获取表的记录数和金额字段的求和
@@ -232,6 +238,8 @@ public class TableMetadataService {
             String countSql = StrUtil.format("SELECT COUNT(*) FROM {}", tableName);
             // 应用WHERE条件
             countSql = whereConditionConfig.applyCondition(countSql, dataSourceName, tableName);
+            // 应用SQL提示
+            countSql = whereConditionConfig.applySqlHint(countSql, dataSourceName, tableName);
             log.debug("执行SQL: {}", countSql);
 
             // 使用Optional处理可能为null的结果，但用Java 8兼容的方式
@@ -276,6 +284,8 @@ public class TableMetadataService {
 
         // 应用WHERE条件
         sumSql = whereConditionConfig.applyCondition(sumSql, dataSourceName, tableName);
+        // 应用SQL提示
+        sumSql = whereConditionConfig.applySqlHint(sumSql, dataSourceName, tableName);
         log.info("执行批量SUM查询: {}", sumSql);
 
         // 执行查询并映射结果
@@ -314,23 +324,27 @@ public class TableMetadataService {
     /**
      * 判断表是否应该被排除
      */
-    private boolean shouldExcludeTable(String tableName, String schema, String includeSchemas, String includeTables) {
-        // 检查schema是否在包含列表中
-        boolean schemaIncluded = Arrays.stream(includeSchemas.split(","))
-            .map(String::trim)
-            .filter(s -> !s.isEmpty())
-            .anyMatch(s -> s.equals(schema));
+    private boolean shouldExcludeTable(String tableName, String tableSchema,
+                                       String includeSchemas, String includeTables) {
+        String cacheKey = tableSchema + ":" + tableName + ":" + includeSchemas + ":" + includeTables;
+        return schemaTableCache.computeIfAbsent(cacheKey, k -> {
+            // 如果指定了schema，检查当前表的schema是否在列表中
+            if (StrUtil.isNotEmpty(includeSchemas)) {
+                List<String> schemaList = Arrays.asList(includeSchemas.split(","));
+                if (!schemaList.contains(tableSchema)) {
+                    return true;
+                }
+            }
 
-        if (!schemaIncluded) {
-            return true;
-        }
+            // 如果指定了表名，检查当前表是否在列表中
+            if (StrUtil.isNotEmpty(includeTables)) {
+                List<String> tableList = Arrays.asList(includeTables.split(","));
+                String tableNameWithSchema = StrUtil.format("{}@{}", tableName, tableSchema);
+                return !tableList.contains(tableName) && !tableList.contains(tableNameWithSchema);
+            }
 
-        // 检查表名是否在包含列表中
-        return Arrays.stream(includeTables.split(","))
-            .map(String::trim)
-            .filter(s -> !s.isEmpty())
-            .map(s -> s.split("@")[0])
-            .noneMatch(s -> s.equals(tableName));
+            return false;
+        });
     }
 
     /**
@@ -340,10 +354,6 @@ public class TableMetadataService {
      * @return 是否为数值型
      */
     private boolean isNumericType(int sqlType) {
-        return sqlType == java.sql.Types.DECIMAL
-            || sqlType == java.sql.Types.NUMERIC
-            || sqlType == java.sql.Types.DOUBLE
-            || sqlType == java.sql.Types.FLOAT
-            || sqlType == java.sql.Types.REAL;
+        return NUMERIC_TYPES.contains(sqlType);
     }
 } 

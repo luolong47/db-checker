@@ -91,7 +91,7 @@ logging:
   level:
     root: info
     org.springframework.jdbc.core: debug
-    io.github.luolong47.dbchecker: info
+    io.github.luolong47.dbchecker: debug
     com.zaxxer.hikari: warn
     # 日志文件配置
   file:
@@ -140,3 +140,13 @@ db:
     formula5: CUSTOMERS,FORMULA5_TRUE,FORMULA5_FALSE,FORMULA5_NA
     # 公式6: ora = rlcms_pv1
     formula6: PRODUCTS,USERS,SPECIAL_TABLE@OTHER_SCHEMA,FORMULA6_TRUE,FORMULA6_FALSE,FORMULA6_NA
+  hints:
+    type:
+      t1: ora
+      t2: rlcms_pv1,rlcms_pv2,rlcms_pv3,bscopy_pv1,bscopy_pv2,bscopy_pv3,rlcms_base
+    table:
+      t1: INVENTORY,SALES
+      t2: PAYMENTS,USERS
+    sql:
+      t1: '/*+ parallel(4) */'
+      t2: '/*+ set(query_dop 4) */'
