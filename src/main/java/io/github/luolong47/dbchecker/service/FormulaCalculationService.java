@@ -9,7 +9,6 @@ import io.github.luolong47.dbchecker.service.strategy.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -21,119 +20,22 @@ import java.util.stream.Collectors;
 @Service
 public class FormulaCalculationService {
 
-    // 公式描述常量
-    private static final Map<Integer, String> FORMULA_DESCRIPTIONS = new HashMap<>();
-
-    static {
-        // 初始化公式描述 - 使用英文括号和冒号
-        FORMULA_DESCRIPTIONS.put(1, "公式1(分省-拆分): ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(2, "公式2(仅基础): ora = rlcms_base");
-        FORMULA_DESCRIPTIONS.put(3, "公式3(基础+副本): ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3");
-        FORMULA_DESCRIPTIONS.put(4, "公式4(分省-冗余): ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(5, "公式5(全部): ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(6, "公式6(分省1): ora = rlcms_pv1");
-    }
-
-    // 存储各公式适用的表名集合
-    private final Map<Integer, Set<String>> formulaTableMap = new HashMap<>();
-    // 存储公式策略的映射
-    private final Map<Integer, FormulaStrategy> formulaStrategies = new HashMap<>();
     // 缓存表名到策略的映射
     private final Map<String, FormulaStrategy> tableStrategyCache = new ConcurrentHashMap<>();
-
-    // 缓存表名到适用公式的映射（每个表只应用一个公式）
-    private final Map<String, String> applicableFormulasCache = new ConcurrentHashMap<>();
-    // 缓存表名到公式编号的映射
-    private final Map<String, Integer> tableFormulaNumberCache = new ConcurrentHashMap<>();
-    // 缓存表名和公式编号到应用结果的映射
-    private final Map<String, Boolean> shouldApplyFormulaCache = new ConcurrentHashMap<>();
-    // 缓存求和值
-    private final Map<String, Map<String, BigDecimal>> sumValuesCache = new ConcurrentHashMap<>();
-    // 缓存计数值
-    private final Map<String, Map<String, Long>> countValuesCache = new ConcurrentHashMap<>();
 
     // 配置类
     private final DbConfig config;
 
     public FormulaCalculationService(DbConfig config) {
         this.config = config;
-        initFormulaTableMap();
-        initFormulaStrategies();
-    }
-
-    /**
-     * 获取适用于表的公式
-     */
-    public String getApplicableFormula(String tableName) {
-        return applicableFormulasCache.computeIfAbsent(tableName, k -> {
-            for (int i = 1; i <= 6; i++) {
-                if (shouldApplyFormula(tableName, i)) {
-                    tableFormulaNumberCache.put(tableName, i);
-                    return FORMULA_DESCRIPTIONS.get(i);
-                }
-            }
-            return "";
-        });
-    }
-
-    /**
-     * 获取表的公式编号
-     */
-    public int getTableFormulaNumber(String tableName) {
-        return tableFormulaNumberCache.getOrDefault(tableName, -1);
-    }
-
-    /**
-     * 判断是否应该应用公式
-     */
-    public boolean shouldApplyFormula(String tableName, int formulaNumber) {
-        String cacheKey = tableName + ":" + formulaNumber;
-        return shouldApplyFormulaCache.computeIfAbsent(cacheKey, k -> {
-            Set<String> applicableTables = formulaTableMap.get(formulaNumber);
-            return applicableTables != null && applicableTables.contains(tableName);
-        });
-    }
-
-    /**
-     * 收集求和值并缓存
-     */
-    private Map<String, BigDecimal> collectSumValues(MoneyFieldSumInfo info, String[] dataSources) {
-        String cacheKey = info.getTableName() + ":" + info.getSumField();
-        return sumValuesCache.computeIfAbsent(cacheKey, k -> {
-            Map<String, BigDecimal> values = new HashMap<>();
-            for (String ds : dataSources) {
-                values.put(ds, info.getSumValueByDataSource(ds));
-            }
-            return values;
-        });
-    }
-
-    /**
-     * 收集计数值并缓存
-     */
-    private Map<String, Long> collectCountValues(MoneyFieldSumInfo info, String[] dataSources) {
-        String cacheKey = info.getTableName() + ":_COUNT";
-        return countValuesCache.computeIfAbsent(cacheKey, k -> {
-            Map<String, Long> values = new HashMap<>();
-            for (String ds : dataSources) {
-                values.put(ds, info.getCountValueByDataSource(ds));
-            }
-            return values;
-        });
+        initTableStrategyCache();
     }
 
     /**
      * 获取适用于表的公式策略
      */
     public FormulaStrategy getTableStrategy(String tableName) {
-        return tableStrategyCache.computeIfAbsent(tableName, k -> {
-            for (Map.Entry<Integer, Set<String>> entry : formulaTableMap.entrySet()) {
-                if (entry.getValue().contains(tableName)) {
-                    return formulaStrategies.get(entry.getKey());
-                }
-            }
-            return null;
-        });
+        return tableStrategyCache.get(tableName);
     }
 
     /**
@@ -196,39 +98,21 @@ public class FormulaCalculationService {
     }
 
     /**
-     * 初始化公式策略
+     * 初始化表策略缓存
      */
-    private void initFormulaStrategies() {
+    private void initTableStrategyCache() {
         // 定义公式需要的数据源映射
         Map<Integer, String[]> formulaDataSources = initFormulaDataSources();
 
         // 初始化各个公式的策略
-        formulaStrategies.put(1, new Formula1Strategy(new DefaultValueCollector(formulaDataSources.get(1))));
-        formulaStrategies.put(2, new Formula2Strategy(new DefaultValueCollector(formulaDataSources.get(2))));
-        formulaStrategies.put(3, new Formula3Strategy(new DefaultValueCollector(formulaDataSources.get(3))));
-        formulaStrategies.put(4, new Formula4Strategy(new DefaultValueCollector(formulaDataSources.get(4))));
-        formulaStrategies.put(5, new Formula5Strategy(new DefaultValueCollector(formulaDataSources.get(5))));
-        formulaStrategies.put(6, new Formula6Strategy(new DefaultValueCollector(formulaDataSources.get(6))));
-    }
+        Map<Integer, FormulaStrategy> strategies = new HashMap<>();
+        strategies.put(1, new Formula1Strategy(new DefaultValueCollector(formulaDataSources.get(1))));
+        strategies.put(2, new Formula2Strategy(new DefaultValueCollector(formulaDataSources.get(2))));
+        strategies.put(3, new Formula3Strategy(new DefaultValueCollector(formulaDataSources.get(3))));
+        strategies.put(4, new Formula4Strategy(new DefaultValueCollector(formulaDataSources.get(4))));
+        strategies.put(5, new Formula5Strategy(new DefaultValueCollector(formulaDataSources.get(5))));
+        strategies.put(6, new Formula6Strategy(new DefaultValueCollector(formulaDataSources.get(6))));
 
-    /**
-     * 初始化公式数据源映射
-     */
-    private Map<Integer, String[]> initFormulaDataSources() {
-        Map<Integer, String[]> formulaDataSources = new HashMap<>();
-        formulaDataSources.put(1, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(2, new String[]{"ora", "rlcms_base"});
-        formulaDataSources.put(3, new String[]{"ora", "rlcms_base", "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"});
-        formulaDataSources.put(4, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(5, new String[]{"ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(6, new String[]{"ora", "rlcms_pv1"});
-        return formulaDataSources;
-    }
-
-    /**
-     * 初始化公式适用表集合
-     */
-    public void initFormulaTableMap() {
         // 使用Stream API统一处理所有公式配置
         Map<Integer, String> formulaConfigs = new HashMap<>();
         formulaConfigs.put(1, config.getFormula1());
@@ -248,7 +132,6 @@ public class FormulaCalculationService {
             String tablesStr = entry.getValue();
 
             if (StrUtil.isBlank(tablesStr)) {
-                formulaTableMap.put(formulaNum, new HashSet<>());
                 continue;
             }
 
@@ -256,6 +139,11 @@ public class FormulaCalculationService {
             Set<String> tableSet = Arrays.stream(tablesStr.split(","))
                 .map(String::trim)
                 .collect(Collectors.toSet());
+
+            FormulaStrategy strategy = strategies.get(formulaNum);
+            if (strategy == null) {
+                continue;
+            }
 
             // 检查每个表是否已应用其他公式
             for (String table : tableSet) {
@@ -265,11 +153,11 @@ public class FormulaCalculationService {
                         table, existingFormula, formulaNum));
                 } else {
                     tableFormulaMap.put(table, formulaNum);
+                    // 直接将表名与策略关联并存入缓存
+                    tableStrategyCache.put(table, strategy);
                 }
             }
 
-            // 保存当前公式的表集合
-            formulaTableMap.put(formulaNum, tableSet);
             log.info("公式{}适用表: {}", formulaNum, StrUtil.join(", ", tableSet));
         }
 
@@ -277,10 +165,24 @@ public class FormulaCalculationService {
         if (!duplicateTables.isEmpty()) {
             String errorMsg = String.format("发现%d个表被应用到多个公式中:\n%s",
                 duplicateTables.size(),
-                duplicateTables.stream().collect(Collectors.joining("\n")));
+                String.join("\n", duplicateTables));
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
         }
+    }
+
+    /**
+     * 初始化公式数据源映射
+     */
+    private Map<Integer, String[]> initFormulaDataSources() {
+        Map<Integer, String[]> formulaDataSources = new HashMap<>();
+        formulaDataSources.put(1, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(2, new String[]{"ora", "rlcms_base"});
+        formulaDataSources.put(3, new String[]{"ora", "rlcms_base", "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"});
+        formulaDataSources.put(4, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(5, new String[]{"ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(6, new String[]{"ora", "rlcms_pv1"});
+        return formulaDataSources;
     }
 
     /**

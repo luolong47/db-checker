@@ -82,9 +82,6 @@ public class DatabaseService {
         log.info("配置信息 - 包含表: {}", whereConditionConfig.getIncludeTables());
         log.info("配置信息 - 包含Schema: {}", whereConditionConfig.getIncludeSchemas());
 
-        // 初始化公式适用表集合
-        formulaCalculationService.initFormulaTableMap();
-
         // 根据运行模式初始化状态
         resumeStateManager.initResumeState(whereConditionConfig.getRunMode());
     }
