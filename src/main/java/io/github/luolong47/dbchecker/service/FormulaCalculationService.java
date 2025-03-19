@@ -2,9 +2,10 @@ package io.github.luolong47.dbchecker.service;
 
 import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
+import io.github.luolong47.dbchecker.model.DiffInfo;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import io.github.luolong47.dbchecker.model.TableInfo;
-import lombok.Data;
+import io.github.luolong47.dbchecker.service.strategy.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,25 +25,28 @@ public class FormulaCalculationService {
     private static final Map<Integer, String> FORMULA_DESCRIPTIONS = new HashMap<>();
 
     static {
-        // 初始化公式描述
-        FORMULA_DESCRIPTIONS.put(1, "（分省-拆分）: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(2, "（仅基础）: ora = rlcms_base");
-        FORMULA_DESCRIPTIONS.put(3, "（基础+副本）: ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3");
-        FORMULA_DESCRIPTIONS.put(4, "（分省-冗余）: ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(5, "（全部）: ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
-        FORMULA_DESCRIPTIONS.put(6, "（分省1）: ora = rlcms_pv1");
+        // 初始化公式描述 - 使用英文括号和冒号
+        FORMULA_DESCRIPTIONS.put(1, "公式1(分省-拆分): ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
+        FORMULA_DESCRIPTIONS.put(2, "公式2(仅基础): ora = rlcms_base");
+        FORMULA_DESCRIPTIONS.put(3, "公式3(基础+副本): ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3");
+        FORMULA_DESCRIPTIONS.put(4, "公式4(分省-冗余): ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
+        FORMULA_DESCRIPTIONS.put(5, "公式5(全部): ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3");
+        FORMULA_DESCRIPTIONS.put(6, "公式6(分省1): ora = rlcms_pv1");
     }
 
     // 存储各公式适用的表名集合
     private final Map<Integer, Set<String>> formulaTableMap = new HashMap<>();
     // 存储公式策略的映射
     private final Map<Integer, FormulaStrategy> formulaStrategies = new HashMap<>();
-    private final Map<Integer, CountFormulaStrategy> countStrategies = new HashMap<>();
+    // 缓存表名到策略的映射
+    private final Map<String, FormulaStrategy> tableStrategyCache = new ConcurrentHashMap<>();
 
-    // 缓存表名到适用公式的映射
-    private final Map<String, List<String>> applicableFormulasCache = new ConcurrentHashMap<>();
+    // 缓存表名到适用公式的映射（每个表只应用一个公式）
+    private final Map<String, String> applicableFormulasCache = new ConcurrentHashMap<>();
+    // 缓存表名到公式编号的映射
+    private final Map<String, Integer> tableFormulaNumberCache = new ConcurrentHashMap<>();
     // 缓存表名和公式编号到应用结果的映射
-    private final Map<String, Map<Integer, Boolean>> shouldApplyFormulaCache = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> shouldApplyFormulaCache = new ConcurrentHashMap<>();
     // 缓存求和值
     private final Map<String, Map<String, BigDecimal>> sumValuesCache = new ConcurrentHashMap<>();
     // 缓存计数值
@@ -53,34 +57,41 @@ public class FormulaCalculationService {
 
     public FormulaCalculationService(DbConfig config) {
         this.config = config;
+        initFormulaTableMap();
         initFormulaStrategies();
     }
 
     /**
-     * 获取适用于表的公式列表
+     * 获取适用于表的公式
      */
-    public List<String> getApplicableFormulas(String tableName) {
+    public String getApplicableFormula(String tableName) {
         return applicableFormulasCache.computeIfAbsent(tableName, k -> {
-            List<String> formulas = new ArrayList<>();
             for (int i = 1; i <= 6; i++) {
                 if (shouldApplyFormula(tableName, i)) {
-                    formulas.add(FORMULA_DESCRIPTIONS.get(i));
+                    tableFormulaNumberCache.put(tableName, i);
+                    return FORMULA_DESCRIPTIONS.get(i);
                 }
             }
-            return formulas;
+            return "";
         });
+    }
+
+    /**
+     * 获取表的公式编号
+     */
+    public int getTableFormulaNumber(String tableName) {
+        return tableFormulaNumberCache.getOrDefault(tableName, -1);
     }
 
     /**
      * 判断是否应该应用公式
      */
     public boolean shouldApplyFormula(String tableName, int formulaNumber) {
-        return shouldApplyFormulaCache
-            .computeIfAbsent(tableName, k -> new ConcurrentHashMap<>())
-            .computeIfAbsent(formulaNumber, k -> {
-                Set<String> applicableTables = formulaTableMap.get(formulaNumber);
-                return applicableTables != null && applicableTables.contains(tableName);
-            });
+        String cacheKey = tableName + ":" + formulaNumber;
+        return shouldApplyFormulaCache.computeIfAbsent(cacheKey, k -> {
+            Set<String> applicableTables = formulaTableMap.get(formulaNumber);
+            return applicableTables != null && applicableTables.contains(tableName);
+        });
     }
 
     /**
@@ -109,6 +120,109 @@ public class FormulaCalculationService {
             }
             return values;
         });
+    }
+
+    /**
+     * 获取适用于表的公式策略
+     */
+    public FormulaStrategy getTableStrategy(String tableName) {
+        return tableStrategyCache.computeIfAbsent(tableName, k -> {
+            for (Map.Entry<Integer, Set<String>> entry : formulaTableMap.entrySet()) {
+                if (entry.getValue().contains(tableName)) {
+                    return formulaStrategies.get(entry.getKey());
+                }
+            }
+            return null;
+        });
+    }
+
+    /**
+     * 计算表的公式结果并创建多行结果
+     */
+    public List<List<String>> calculateFormulaResults(MoneyFieldSumInfo info, List<String> baseValues) {
+        List<List<String>> results = new ArrayList<>();
+        String tableName = info.getTableName();
+
+        // 获取适用于该表的公式策略
+        FormulaStrategy strategy = getTableStrategy(tableName);
+
+        List<String> row = new ArrayList<>(baseValues);
+        if (strategy == null) {
+            // 如果没有适用的公式，仍然输出一行，但公式、结果和差异说明为空
+            row.add("");
+            row.add("");
+            row.add("");
+            row.add("");
+            results.add(row);
+            return results;
+        }
+
+        try {
+            String result;
+            String diffDescription = "";
+            String diffValue = "";
+
+            if (info.isCountField()) {
+                result = strategy.calculateCount(info);
+                if ("FALSE".equals(result)) {
+                    DiffInfo diffInfo = strategy.getDiffInfoForCount(info);
+                    diffDescription = diffInfo.getDescription();
+                    diffValue = diffInfo.getValue();
+                }
+            } else {
+                result = strategy.calculateSum(info);
+                if ("FALSE".equals(result)) {
+                    DiffInfo diffInfo = strategy.getDiffInfoForSum(info);
+                    diffDescription = diffInfo.getDescription();
+                    diffValue = diffInfo.getValue();
+                }
+            }
+
+            row.add(strategy.getDesc());
+            row.add(result);
+            row.add(diffValue);
+            row.add(diffDescription);
+            results.add(row);
+        } catch (Exception e) {
+            log.warn("处理公式时发生错误: {}, 错误: {}", strategy.getDesc(), e.getMessage());
+            row.add(strategy.getDesc());
+            row.add("ERROR");
+            row.add("");
+            row.add(e.getMessage());
+            results.add(row);
+        }
+
+        return results;
+    }
+
+    /**
+     * 初始化公式策略
+     */
+    private void initFormulaStrategies() {
+        // 定义公式需要的数据源映射
+        Map<Integer, String[]> formulaDataSources = initFormulaDataSources();
+
+        // 初始化各个公式的策略
+        formulaStrategies.put(1, new Formula1Strategy(new DefaultValueCollector(formulaDataSources.get(1))));
+        formulaStrategies.put(2, new Formula2Strategy(new DefaultValueCollector(formulaDataSources.get(2))));
+        formulaStrategies.put(3, new Formula3Strategy(new DefaultValueCollector(formulaDataSources.get(3))));
+        formulaStrategies.put(4, new Formula4Strategy(new DefaultValueCollector(formulaDataSources.get(4))));
+        formulaStrategies.put(5, new Formula5Strategy(new DefaultValueCollector(formulaDataSources.get(5))));
+        formulaStrategies.put(6, new Formula6Strategy(new DefaultValueCollector(formulaDataSources.get(6))));
+    }
+
+    /**
+     * 初始化公式数据源映射
+     */
+    private Map<Integer, String[]> initFormulaDataSources() {
+        Map<Integer, String[]> formulaDataSources = new HashMap<>();
+        formulaDataSources.put(1, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(2, new String[]{"ora", "rlcms_base"});
+        formulaDataSources.put(3, new String[]{"ora", "rlcms_base", "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"});
+        formulaDataSources.put(4, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(5, new String[]{"ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
+        formulaDataSources.put(6, new String[]{"ora", "rlcms_pv1"});
+        return formulaDataSources;
     }
 
     /**
@@ -301,515 +415,5 @@ public class FormulaCalculationService {
             .sorted(Comparator.comparing(MoneyFieldSumInfo::getTableName)
                 .thenComparing(MoneyFieldSumInfo::getSumField))
             .collect(Collectors.toList());
-    }
-
-    /**
-     * 计算表的公式结果并创建多行结果
-     *
-     * @param info       表信息
-     * @param baseValues 基础值列表（表名、所在库等）
-     * @return 包含多行结果的列表，每行代表一个适用的公式结果
-     */
-    public List<List<String>> calculateFormulaResults(MoneyFieldSumInfo info, List<String> baseValues) {
-        List<List<String>> results = new ArrayList<>();
-        String tableName = info.getTableName();
-
-        // 获取适用于该表的公式
-        List<String> applicableFormulas = getApplicableFormulas(tableName);
-
-        if (applicableFormulas.isEmpty()) {
-            // 如果没有适用的公式，仍然输出一行，但公式、结果和差异说明为空
-            List<String> row = new ArrayList<>(baseValues);
-            row.add("");
-            row.add("");
-            row.add("");
-            row.add("");
-            results.add(row);
-            return results;
-        }
-
-        // 为每个适用的公式创建一行结果
-        for (int i = 0; i < applicableFormulas.size(); i++) {
-            String formula = applicableFormulas.get(i);
-            List<String> row = new ArrayList<>(baseValues);
-            try {
-                // 获取公式编号 - 直接从公式描述的map中查找对应的编号
-                int formulaNumber = -1;
-                for (Map.Entry<Integer, String> entry : FORMULA_DESCRIPTIONS.entrySet()) {
-                    if (entry.getValue().equals(formula)) {
-                        formulaNumber = entry.getKey();
-                        break;
-                    }
-                }
-
-                if (formulaNumber == -1) {
-                    log.warn("无法确定公式编号: {}", formula);
-                    continue;
-                }
-
-                // 根据字段类型选择不同的公式策略
-                String result;
-                String diffDescription = "";
-                String diffValue = "";
-                if (info.isCountField()) {
-                    // 对于记录数统计字段，使用计数公式策略
-                    result = countStrategies.get(formulaNumber).calculate(info);
-                    if ("FALSE".equals(result)) {
-                        DiffInfo diffInfo = countStrategies.get(formulaNumber).getDiffInfo(info);
-                        diffDescription = diffInfo.getDescription();
-                        diffValue = diffInfo.getValue();
-                    }
-                } else {
-                    // 对于金额字段，使用求和公式策略
-                    result = formulaStrategies.get(formulaNumber).calculateForSum(info);
-                    if ("FALSE".equals(result)) {
-                        DiffInfo diffInfo = formulaStrategies.get(formulaNumber).getDiffInfo(info);
-                        diffDescription = diffInfo.getDescription();
-                        diffValue = diffInfo.getValue();
-                    }
-                }
-
-                row.add(formula);
-                row.add(result);
-                row.add(diffValue);
-                row.add(diffDescription);
-                results.add(row);
-            } catch (Exception e) {
-                log.warn("处理公式时发生错误: {}, 错误: {}", formula, e.getMessage());
-            }
-        }
-
-        return results;
-    }
-
-    /**
-     * 初始化公式策略
-     */
-    private void initFormulaStrategies() {
-        // 定义公式需要的数据源映射
-        Map<Integer, String[]> formulaDataSources = new HashMap<>();
-        formulaDataSources.put(1, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(2, new String[]{"ora", "rlcms_base"});
-        formulaDataSources.put(3, new String[]{"ora", "rlcms_base", "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"});
-        formulaDataSources.put(4, new String[]{"ora", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(5, new String[]{"ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3"});
-        formulaDataSources.put(6, new String[]{"ora", "rlcms_pv1"});
-
-        // 公式1: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3
-        formulaStrategies.put(1, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(1));
-                if (containsNull(values)) return "N/A";
-
-                BigDecimal sum = values.get("rlcms_pv1").add(values.get("rlcms_pv2")).add(values.get("rlcms_pv3"));
-                return isApproximatelyEqual(values.get("ora"), sum) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(1));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                BigDecimal sum = values.get("rlcms_pv1").add(values.get("rlcms_pv2")).add(values.get("rlcms_pv3"));
-                BigDecimal diff = values.get("ora").subtract(sum);
-                return new DiffInfo(
-                    String.format("ORA(%s) - (RLCMS_PV1(%s) + RLCMS_PV2(%s) + RLCMS_PV3(%s))",
-                        values.get("ora"), values.get("rlcms_pv1"), values.get("rlcms_pv2"), values.get("rlcms_pv3")),
-                    diff.toString()
-                );
-            }
-        });
-
-        countStrategies.put(1, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(1));
-                if (containsNull(values)) return "N/A";
-
-                long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
-                return values.get("ora").equals(sum) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(1));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
-                long diff = values.get("ora") - sum;
-                return new DiffInfo(
-                    String.format("ORA(%d) - (RLCMS_PV1(%d) + RLCMS_PV2(%d) + RLCMS_PV3(%d))",
-                        values.get("ora"), values.get("rlcms_pv1"), values.get("rlcms_pv2"), values.get("rlcms_pv3")),
-                    String.valueOf(diff)
-                );
-            }
-        });
-
-        // 公式2: ora = rlcms_base
-        formulaStrategies.put(2, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(2));
-                if (containsNull(values)) return "N/A";
-
-                return isApproximatelyEqual(values.get("ora"), values.get("rlcms_base")) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(2));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                BigDecimal diff = values.get("ora").subtract(values.get("rlcms_base"));
-                return new DiffInfo(
-                    String.format("ORA(%s) - RLCMS_BASE(%s)",
-                        values.get("ora"), values.get("rlcms_base")),
-                    diff.toString()
-                );
-            }
-        });
-
-        countStrategies.put(2, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(2));
-                if (containsNull(values)) return "N/A";
-
-                return values.get("ora").equals(values.get("rlcms_base")) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(2));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                long diff = values.get("ora") - values.get("rlcms_base");
-                return new DiffInfo(
-                    String.format("ORA(%d) - RLCMS_BASE(%d)",
-                        values.get("ora"), values.get("rlcms_base")),
-                    String.valueOf(diff)
-                );
-            }
-        });
-
-        // 公式3: ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3
-        formulaStrategies.put(3, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(3));
-                if (containsNull(values)) return "N/A";
-
-                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(3));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                BigDecimal reference = values.get("ora");
-                BigDecimal totalDiff = BigDecimal.ZERO;
-                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora")) {
-                        BigDecimal diff = reference.subtract(entry.getValue());
-                        totalDiff = totalDiff.add(diff.abs());
-                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
-                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
-                        }
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        totalDiff.toString()
-                    );
-            }
-        });
-
-        countStrategies.put(3, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(3));
-                if (containsNull(values)) return "N/A";
-
-                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(3));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                Long reference = values.get("ora");
-                long totalDiff = 0;
-                for (Map.Entry<String, Long> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
-                        long diff = Math.abs(reference - entry.getValue());
-                        totalDiff += diff;
-                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        String.valueOf(totalDiff)
-                    );
-            }
-        });
-
-        // 公式4: ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3
-        formulaStrategies.put(4, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(4));
-                if (containsNull(values)) return "N/A";
-
-                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(4));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                BigDecimal reference = values.get("ora");
-                BigDecimal totalDiff = BigDecimal.ZERO;
-                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora")) {
-                        BigDecimal diff = reference.subtract(entry.getValue());
-                        totalDiff = totalDiff.add(diff.abs());
-                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
-                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
-                        }
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        totalDiff.toString()
-                    );
-            }
-        });
-
-        countStrategies.put(4, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(4));
-                if (containsNull(values)) return "N/A";
-
-                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(4));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                Long reference = values.get("ora");
-                long totalDiff = 0;
-                for (Map.Entry<String, Long> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
-                        long diff = Math.abs(reference - entry.getValue());
-                        totalDiff += diff;
-                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        String.valueOf(totalDiff)
-                    );
-            }
-        });
-
-        // 公式5: ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3
-        formulaStrategies.put(5, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(5));
-                if (containsNull(values)) return "N/A";
-
-                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(5));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                BigDecimal reference = values.get("ora");
-                BigDecimal totalDiff = BigDecimal.ZERO;
-                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora")) {
-                        BigDecimal diff = reference.subtract(entry.getValue());
-                        totalDiff = totalDiff.add(diff.abs());
-                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
-                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
-                        }
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        totalDiff.toString()
-                    );
-            }
-        });
-
-        countStrategies.put(5, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(5));
-                if (containsNull(values)) return "N/A";
-
-                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(5));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                List<String> diffs = new ArrayList<>();
-                Long reference = values.get("ora");
-                long totalDiff = 0;
-                for (Map.Entry<String, Long> entry : values.entrySet()) {
-                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
-                        long diff = Math.abs(reference - entry.getValue());
-                        totalDiff += diff;
-                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
-                    }
-                }
-                return diffs.isEmpty() ? new DiffInfo("", "") :
-                    new DiffInfo(
-                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
-                        String.valueOf(totalDiff)
-                    );
-            }
-        });
-
-        // 公式6: ora = rlcms_pv1
-        formulaStrategies.put(6, new FormulaStrategy() {
-            @Override
-            public String calculateForSum(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(6));
-                if (containsNull(values)) return "N/A";
-
-                return isApproximatelyEqual(values.get("ora"), values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(6));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                BigDecimal diff = values.get("ora").subtract(values.get("rlcms_pv1"));
-                return new DiffInfo(
-                    String.format("ORA(%s) - RLCMS_PV1(%s)",
-                        values.get("ora"), values.get("rlcms_pv1")),
-                    diff.toString()
-                );
-            }
-        });
-
-        countStrategies.put(6, new CountFormulaStrategy() {
-            @Override
-            public String calculate(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(6));
-                if (containsNull(values)) return "N/A";
-
-                return values.get("ora").equals(values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
-            }
-
-            @Override
-            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(6));
-                if (containsNull(values)) return new DiffInfo("N/A", "");
-
-                long diff = values.get("ora") - values.get("rlcms_pv1");
-                return new DiffInfo(
-                    String.format("ORA(%d) - RLCMS_PV1(%d)",
-                        values.get("ora"), values.get("rlcms_pv1")),
-                    String.valueOf(diff)
-                );
-            }
-        });
-    }
-
-    /**
-     * 定义公式计算策略接口
-     */
-    @FunctionalInterface
-    public interface FormulaStrategy {
-        String calculateForSum(MoneyFieldSumInfo info);
-
-        default DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-            return new DiffInfo("", "");
-        }
-    }
-
-    /**
-     * 检查Map中是否包含null值
-     */
-    private <T> boolean containsNull(Map<String, T> map) {
-        return map.values().stream().anyMatch(Objects::isNull);
-    }
-
-    /**
-     * 检查所有BigDecimal值是否近似相等
-     */
-    private boolean areAllValuesEqual(BigDecimal... values) {
-        if (values.length <= 1) {
-            return true;
-        }
-
-        BigDecimal reference = values[0];
-        return Arrays.stream(values)
-            .skip(1)
-            .allMatch(value -> isApproximatelyEqual(reference, value));
-    }
-
-    /**
-     * 检查所有COUNT值是否相等
-     */
-    private boolean areAllCountValuesEqual(Collection<Long> values) {
-        return values.stream().distinct().count() <= 1;
-    }
-
-    /**
-     * 检查两个BigDecimal是否近似相等（差值小于0.01）
-     */
-    private boolean isApproximatelyEqual(BigDecimal a, BigDecimal b) {
-        return Optional.ofNullable(a)
-            .flatMap(valueA -> Optional.ofNullable(b)
-                .map(valueB -> valueA.subtract(valueB).abs().compareTo(new BigDecimal("0.01")) <= 0))
-            .orElse(false);
-    }
-
-    /**
-     * 定义COUNT公式计算策略接口
-     */
-    @FunctionalInterface
-    public interface CountFormulaStrategy {
-        String calculate(MoneyFieldSumInfo info);
-
-        default DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
-            return new DiffInfo("", "");
-        }
-    }
-
-    /**
-     * 差异信息类
-     */
-    @Data
-    private static class DiffInfo {
-        private final String description;
-        private final String value;
     }
 } 
