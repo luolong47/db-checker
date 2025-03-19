@@ -47,7 +47,7 @@ public class CsvExportUtil {
             "表名", "所在库",
             "金额字段", "统计项",
             "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
-            "应用公式", "公式结果"
+            "应用公式", "公式结果", "差异值", "差异描述"
         };
 
         // 创建结果集合，先添加表头

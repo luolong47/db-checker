@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import io.github.luolong47.dbchecker.model.TableInfo;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -253,8 +254,10 @@ public class FormulaCalculationService {
         List<String> applicableFormulas = getApplicableFormulas(tableName);
 
         if (applicableFormulas.isEmpty()) {
-            // 如果没有适用的公式，仍然输出一行，但公式和结果为空
+            // 如果没有适用的公式，仍然输出一行，但公式、结果和差异说明为空
             List<String> row = new ArrayList<>(baseValues);
+            row.add("");
+            row.add("");
             row.add("");
             row.add("");
             results.add(row);
@@ -269,16 +272,30 @@ public class FormulaCalculationService {
 
             // 根据字段类型选择不同的公式策略
             String result;
+            String diffDescription = "";
+            String diffValue = "";
             if (info.isCountField()) {
                 // 对于记录数统计字段，使用计数公式策略
                 result = countStrategies.get(formulaNumber).calculate(info);
+                if ("FALSE".equals(result)) {
+                    DiffInfo diffInfo = countStrategies.get(formulaNumber).getDiffInfo(info);
+                    diffDescription = diffInfo.getDescription();
+                    diffValue = diffInfo.getValue();
+                }
             } else {
                 // 对于金额字段，使用求和公式策略
                 result = formulaStrategies.get(formulaNumber).calculateForSum(info);
+                if ("FALSE".equals(result)) {
+                    DiffInfo diffInfo = formulaStrategies.get(formulaNumber).getDiffInfo(info);
+                    diffDescription = diffInfo.getDescription();
+                    diffValue = diffInfo.getValue();
+                }
             }
 
             row.add(formula);
             row.add(result);
+            row.add(diffValue);
+            row.add(diffDescription);
             results.add(row);
         }
 
@@ -335,96 +352,362 @@ public class FormulaCalculationService {
         formulaDataSources.put(6, new String[]{"ora", "rlcms_pv1"});
 
         // 公式1: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3
-        formulaStrategies.put(1, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(1));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(1, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(1));
+                if (containsNull(values)) return "N/A";
 
-            BigDecimal sum = values.get("rlcms_pv1").add(values.get("rlcms_pv2")).add(values.get("rlcms_pv3"));
-            return isApproximatelyEqual(values.get("ora"), sum) ? "TRUE" : "FALSE";
+                BigDecimal sum = values.get("rlcms_pv1").add(values.get("rlcms_pv2")).add(values.get("rlcms_pv3"));
+                return isApproximatelyEqual(values.get("ora"), sum) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(1));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                BigDecimal sum = values.get("rlcms_pv1").add(values.get("rlcms_pv2")).add(values.get("rlcms_pv3"));
+                BigDecimal diff = values.get("ora").subtract(sum);
+                return new DiffInfo(
+                    String.format("ORA(%s) - (RLCMS_PV1(%s) + RLCMS_PV2(%s) + RLCMS_PV3(%s))",
+                        values.get("ora"), values.get("rlcms_pv1"), values.get("rlcms_pv2"), values.get("rlcms_pv3")),
+                    diff.toString()
+                );
+            }
         });
 
-        countStrategies.put(1, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(1));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(1, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(1));
+                if (containsNull(values)) return "N/A";
 
-            long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
-            return values.get("ora").equals(sum) ? "TRUE" : "FALSE";
+                long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
+                return values.get("ora").equals(sum) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(1));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
+                long diff = values.get("ora") - sum;
+                return new DiffInfo(
+                    String.format("ORA(%d) - (RLCMS_PV1(%d) + RLCMS_PV2(%d) + RLCMS_PV3(%d))",
+                        values.get("ora"), values.get("rlcms_pv1"), values.get("rlcms_pv2"), values.get("rlcms_pv3")),
+                    String.valueOf(diff)
+                );
+            }
         });
 
         // 公式2: ora = rlcms_base
-        formulaStrategies.put(2, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(2));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(2, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(2));
+                if (containsNull(values)) return "N/A";
 
-            return isApproximatelyEqual(values.get("ora"), values.get("rlcms_base")) ? "TRUE" : "FALSE";
+                return isApproximatelyEqual(values.get("ora"), values.get("rlcms_base")) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(2));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                BigDecimal diff = values.get("ora").subtract(values.get("rlcms_base"));
+                return new DiffInfo(
+                    String.format("ORA(%s) - RLCMS_BASE(%s)",
+                        values.get("ora"), values.get("rlcms_base")),
+                    diff.toString()
+                );
+            }
         });
 
-        countStrategies.put(2, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(2));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(2, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(2));
+                if (containsNull(values)) return "N/A";
 
-            return values.get("ora").equals(values.get("rlcms_base")) ? "TRUE" : "FALSE";
+                return values.get("ora").equals(values.get("rlcms_base")) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(2));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                long diff = values.get("ora") - values.get("rlcms_base");
+                return new DiffInfo(
+                    String.format("ORA(%d) - RLCMS_BASE(%d)",
+                        values.get("ora"), values.get("rlcms_base")),
+                    String.valueOf(diff)
+                );
+            }
         });
 
         // 公式3: ora = rlcms_base = bscopy_pv1 = bscopy_pv2 = bscopy_pv3
-        formulaStrategies.put(3, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(3));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(3, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(3));
+                if (containsNull(values)) return "N/A";
 
-            return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(3));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                BigDecimal reference = values.get("ora");
+                BigDecimal totalDiff = BigDecimal.ZERO;
+                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora")) {
+                        BigDecimal diff = reference.subtract(entry.getValue());
+                        totalDiff = totalDiff.add(diff.abs());
+                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
+                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
+                        }
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        totalDiff.toString()
+                    );
+            }
         });
 
-        countStrategies.put(3, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(3));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(3, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(3));
+                if (containsNull(values)) return "N/A";
 
-            return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(3));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                Long reference = values.get("ora");
+                long totalDiff = 0;
+                for (Map.Entry<String, Long> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
+                        long diff = Math.abs(reference - entry.getValue());
+                        totalDiff += diff;
+                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        String.valueOf(totalDiff)
+                    );
+            }
         });
 
         // 公式4: ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3
-        formulaStrategies.put(4, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(4));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(4, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(4));
+                if (containsNull(values)) return "N/A";
 
-            return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(4));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                BigDecimal reference = values.get("ora");
+                BigDecimal totalDiff = BigDecimal.ZERO;
+                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora")) {
+                        BigDecimal diff = reference.subtract(entry.getValue());
+                        totalDiff = totalDiff.add(diff.abs());
+                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
+                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
+                        }
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        totalDiff.toString()
+                    );
+            }
         });
 
-        countStrategies.put(4, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(4));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(4, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(4));
+                if (containsNull(values)) return "N/A";
 
-            return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(4));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                Long reference = values.get("ora");
+                long totalDiff = 0;
+                for (Map.Entry<String, Long> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
+                        long diff = Math.abs(reference - entry.getValue());
+                        totalDiff += diff;
+                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        String.valueOf(totalDiff)
+                    );
+            }
         });
 
         // 公式5: ora = rlcms_base = rlcms_pv1 = rlcms_pv2 = rlcms_pv3
-        formulaStrategies.put(5, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(5));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(5, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(5));
+                if (containsNull(values)) return "N/A";
 
-            return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+                return areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(5));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                BigDecimal reference = values.get("ora");
+                BigDecimal totalDiff = BigDecimal.ZERO;
+                for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora")) {
+                        BigDecimal diff = reference.subtract(entry.getValue());
+                        totalDiff = totalDiff.add(diff.abs());
+                        if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
+                            diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
+                        }
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%s)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        totalDiff.toString()
+                    );
+            }
         });
 
-        countStrategies.put(5, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(5));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(5, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(5));
+                if (containsNull(values)) return "N/A";
 
-            return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+                return areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(5));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                List<String> diffs = new ArrayList<>();
+                Long reference = values.get("ora");
+                long totalDiff = 0;
+                for (Map.Entry<String, Long> entry : values.entrySet()) {
+                    if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
+                        long diff = Math.abs(reference - entry.getValue());
+                        totalDiff += diff;
+                        diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));
+                    }
+                }
+                return diffs.isEmpty() ? new DiffInfo("", "") :
+                    new DiffInfo(
+                        String.format("ORA(%d)与以下值不相等: %s", reference, String.join("; ", diffs)),
+                        String.valueOf(totalDiff)
+                    );
+            }
         });
 
         // 公式6: ora = rlcms_pv1
-        formulaStrategies.put(6, info -> {
-            Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(6));
-            if (containsNull(values)) return "N/A";
+        formulaStrategies.put(6, new FormulaStrategy() {
+            @Override
+            public String calculateForSum(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(6));
+                if (containsNull(values)) return "N/A";
 
-            return isApproximatelyEqual(values.get("ora"), values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
+                return isApproximatelyEqual(values.get("ora"), values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, BigDecimal> values = collectSumValues(info, formulaDataSources.get(6));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                BigDecimal diff = values.get("ora").subtract(values.get("rlcms_pv1"));
+                return new DiffInfo(
+                    String.format("ORA(%s) - RLCMS_PV1(%s)",
+                        values.get("ora"), values.get("rlcms_pv1")),
+                    diff.toString()
+                );
+            }
         });
 
-        countStrategies.put(6, info -> {
-            Map<String, Long> values = collectCountValues(info, formulaDataSources.get(6));
-            if (containsNull(values)) return "N/A";
+        countStrategies.put(6, new CountFormulaStrategy() {
+            @Override
+            public String calculate(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(6));
+                if (containsNull(values)) return "N/A";
 
-            return values.get("ora").equals(values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
+                return values.get("ora").equals(values.get("rlcms_pv1")) ? "TRUE" : "FALSE";
+            }
+
+            @Override
+            public DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+                Map<String, Long> values = collectCountValues(info, formulaDataSources.get(6));
+                if (containsNull(values)) return new DiffInfo("N/A", "");
+
+                long diff = values.get("ora") - values.get("rlcms_pv1");
+                return new DiffInfo(
+                    String.format("ORA(%d) - RLCMS_PV1(%d)",
+                        values.get("ora"), values.get("rlcms_pv1")),
+                    String.valueOf(diff)
+                );
+            }
         });
+    }
+
+    /**
+     * 定义公式计算策略接口
+     */
+    @FunctionalInterface
+    public interface FormulaStrategy {
+        String calculateForSum(MoneyFieldSumInfo info);
+
+        default DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+            return new DiffInfo("", "");
+        }
     }
 
     /**
@@ -488,18 +771,23 @@ public class FormulaCalculationService {
     }
 
     /**
-     * 定义公式计算策略接口
-     */
-    @FunctionalInterface
-    public interface FormulaStrategy {
-        String calculateForSum(MoneyFieldSumInfo info);
-    }
-
-    /**
      * 定义COUNT公式计算策略接口
      */
     @FunctionalInterface
     public interface CountFormulaStrategy {
         String calculate(MoneyFieldSumInfo info);
+
+        default DiffInfo getDiffInfo(MoneyFieldSumInfo info) {
+            return new DiffInfo("", "");
+        }
+    }
+
+    /**
+     * 差异信息类
+     */
+    @Data
+    private static class DiffInfo {
+        private final String description;
+        private final String value;
     }
 } 
