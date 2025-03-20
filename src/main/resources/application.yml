@@ -151,7 +151,7 @@ db:
       t1: ora
       t2: rlcms_pv1,rlcms_pv2,rlcms_pv3,bscopy_pv1,bscopy_pv2,bscopy_pv3,rlcms_base
     table:
-      t1: INVENTORY,SALES
+      t1: INVENTORY,SALES, USERS
       t2: PAYMENTS,USERS
     sql:
       t1: '/*+ parallel(4) */'
@@ -159,4 +159,4 @@ db:
   # 从节点查询配置
   slave_query:
     # 要使用从节点查询的表名列表，使用逗号分隔
-    tables:
+    tables: USERS, ORDERS
