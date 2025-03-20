@@ -30,6 +30,15 @@ public class DataSourceConfig {
     }
 
     /**
+     * ora-slave数据源配置
+     */
+    @Bean(name = "oraSlaveDataSource")
+    @ConfigurationProperties(prefix = "spring.datasource.ora-slave")
+    public DataSource oraSlaveDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    /**
      * rlcms-base数据源配置
      */
     @Bean(name = "rlcmsBaseDataSource")
@@ -98,6 +107,7 @@ public class DataSourceConfig {
     @Bean(name = "dataSourceMap")
     public Map<String, DataSource> dataSourceMap(
             @Qualifier("oraDataSource") DataSource oraDataSource,
+            @Qualifier("oraSlaveDataSource") DataSource oraSlaveDataSource,
             @Qualifier("rlcmsBaseDataSource") DataSource rlcmsBaseDataSource,
             @Qualifier("rlcmsPv1DataSource") DataSource rlcmsPv1DataSource,
             @Qualifier("rlcmsPv2DataSource") DataSource rlcmsPv2DataSource,
@@ -108,6 +118,7 @@ public class DataSourceConfig {
         
         Map<String, DataSource> dataSourceMap = new HashMap<>();
         dataSourceMap.put("ora", oraDataSource);
+        dataSourceMap.put("ora-slave", oraSlaveDataSource);
         dataSourceMap.put("rlcms-base", rlcmsBaseDataSource);
         dataSourceMap.put("rlcms-pv1", rlcmsPv1DataSource);
         dataSourceMap.put("rlcms-pv2", rlcmsPv2DataSource);
@@ -125,6 +136,14 @@ public class DataSourceConfig {
     @Bean(name = "oraJdbcTemplate")
     @Primary
     public JdbcTemplate oraJdbcTemplate(@Qualifier("oraDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    /**
+     * 配置ora-slave JdbcTemplate
+     */
+    @Bean(name = "oraSlaveJdbcTemplate")
+    public JdbcTemplate oraSlaveJdbcTemplate(@Qualifier("oraSlaveDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
     }
 

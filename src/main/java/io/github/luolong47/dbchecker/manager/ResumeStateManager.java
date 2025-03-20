@@ -145,7 +145,7 @@ public class ResumeStateManager {
             // 写入文件
             FileUtil.writeUtf8String(json.toString(), getResumeFilePath());
             log.info("已保存断点续跑状态到{}，包含{}个数据库和{}个表的信息",
-                getResumeFilePath(), processedDatabases.size(), processedTables.size());
+                getResumeFilePath().getCanonicalPath(), processedDatabases.size(), processedTables.size());
         } catch (Exception e) {
             log.error("保存断点续跑状态出错: {}", e.getMessage(), e);
         }

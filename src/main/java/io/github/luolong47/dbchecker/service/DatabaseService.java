@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 public class DatabaseService {
 
     private final JdbcTemplate oraJdbcTemplate;
+    private final JdbcTemplate oraSlaveJdbcTemplate;
     private final JdbcTemplate rlcmsBaseJdbcTemplate;
     private final JdbcTemplate rlcmsPv1JdbcTemplate;
     private final JdbcTemplate rlcmsPv2JdbcTemplate;
@@ -44,6 +45,7 @@ public class DatabaseService {
 
     public DatabaseService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
+        @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate,
         @Qualifier("rlcmsBaseJdbcTemplate") JdbcTemplate rlcmsBaseJdbcTemplate,
         @Qualifier("rlcmsPv1JdbcTemplate") JdbcTemplate rlcmsPv1JdbcTemplate,
         @Qualifier("rlcmsPv2JdbcTemplate") JdbcTemplate rlcmsPv2JdbcTemplate,
@@ -57,6 +59,7 @@ public class DatabaseService {
         FormulaCalculationService formulaCalculationService,
         TableMetadataService tableMetadataService) {
         this.oraJdbcTemplate = oraJdbcTemplate;
+        this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.rlcmsBaseJdbcTemplate = rlcmsBaseJdbcTemplate;
         this.rlcmsPv1JdbcTemplate = rlcmsPv1JdbcTemplate;
         this.rlcmsPv2JdbcTemplate = rlcmsPv2JdbcTemplate;
@@ -93,6 +96,8 @@ public class DatabaseService {
         // 全部可用的数据库列表
         Map<String, JdbcTemplate> allDatabases = new LinkedHashMap<>();
         allDatabases.put("ora", oraJdbcTemplate);
+        // ora-slave只作为查询替代，不直接处理，所以不添加到处理列表中
+        // allDatabases.put("ora-slave", oraSlaveJdbcTemplate);
         allDatabases.put("rlcms_base", rlcmsBaseJdbcTemplate);
         allDatabases.put("rlcms_pv1", rlcmsPv1JdbcTemplate);
         allDatabases.put("rlcms_pv2", rlcmsPv2JdbcTemplate);

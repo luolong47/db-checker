@@ -6,6 +6,7 @@ import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.manager.ResumeStateManager;
 import io.github.luolong47.dbchecker.model.TableInfo;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,17 @@ public class TableMetadataService {
     ));
     // 缓存schema和table的包含关系
     private final Map<String, Boolean> schemaTableCache = new ConcurrentHashMap<>();
+
+    // 保存所有JdbcTemplate的引用
+    private final JdbcTemplate oraJdbcTemplate;
+    private final JdbcTemplate oraSlaveJdbcTemplate;
+
+    public TableMetadataService(
+        @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
+        @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate) {
+        this.oraJdbcTemplate = oraJdbcTemplate;
+        this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
+    }
 
     /**
      * 从数据源获取表信息，同时获取表的记录数和金额字段的求和
@@ -234,36 +246,50 @@ public class TableMetadataService {
                                             String dataSourceName, TableInfo tableInfo,
                                             DbConfig whereConditionConfig) {
         try {
-            // 查询记录数
-            String countSql = StrUtil.format("SELECT COUNT(*) FROM {}", tableName);
-            // 应用WHERE条件
+            // 判断是否应该使用从节点查询
+            String dataSourceToUse = whereConditionConfig.getDataSourceToUse(tableName, dataSourceName);
+
+            // 根据数据源名称选择正确的JdbcTemplate
+            JdbcTemplate templateToUse = jdbcTemplate;
+            if ("ora-slave".equals(dataSourceToUse) && "ora".equals(dataSourceName)) {
+                templateToUse = oraSlaveJdbcTemplate;
+            }
+
+            // 使用不同的dataSourceName来构建日志信息，但不修改TableInfo中的dataSourceName
+            // 这样在报表中仍然显示为原始数据源，但实际查询时使用从节点
+            String logDataSourceName = dataSourceName;
+            if (!dataSourceToUse.equals(dataSourceName)) {
+                logDataSourceName = dataSourceToUse + "(替代" + dataSourceName + ")";
+            }
+
+            // 获取该表的总记录数
+            String countSql = "SELECT COUNT(*) FROM " + tableName;
+
+            // 应用条件
             countSql = whereConditionConfig.applyCondition(countSql, dataSourceName, tableName);
+
             // 应用SQL提示
             countSql = whereConditionConfig.applySqlHint(countSql, dataSourceName, tableName);
-            log.debug("执行SQL: {}", countSql);
 
-            // 使用Optional处理可能为null的结果，但用Java 8兼容的方式
-            Optional<Long> countOptional = Optional.ofNullable(jdbcTemplate.queryForObject(countSql, Long.class));
-            if (countOptional.isPresent()) {
-                Long count = countOptional.get();
-                tableInfo.setRecordCount(dataSourceName, count);
-                log.info("表[{}]在{}中有{}条记录", tableName, dataSourceName, count);
-            } else {
-                tableInfo.setRecordCount(dataSourceName, 0L);
-                log.info("表[{}]在{}中有0条记录", tableName, dataSourceName);
+            log.debug("执行查询[{}]: {}", logDataSourceName, countSql);
+
+            try {
+                Integer recordCount = templateToUse.queryForObject(countSql, Integer.class);
+                tableInfo.setRecordCount(dataSourceName, recordCount != null ? recordCount : 0);
+                log.debug("表[{}]在数据源[{}]中的记录数: {}", tableName, logDataSourceName, recordCount);
+
+                // 获取金额字段的SUM
+                if (recordCount != null && recordCount > 0 && !tableInfo.getMoneyFields().isEmpty()) {
+                    fetchMoneySums(templateToUse, tableName, dataSourceName, tableInfo, whereConditionConfig);
+                }
+
+                return true;
+            } catch (BadSqlGrammarException e) {
+                log.warn("执行表[{}]的记录数查询时出错: {}", tableName, e.getMessage());
+                return false;
             }
-
-            // 如果有金额字段，计算它们的SUM
-            if (!tableInfo.getMoneyFields().isEmpty()) {
-                fetchMoneySums(jdbcTemplate, tableName, dataSourceName, tableInfo, whereConditionConfig);
-            }
-
-            return true;
-        } catch (BadSqlGrammarException e) {
-            log.error("获取表[{}]的记录数或SUM值时出错: {}", tableName, e.getMessage());
-            return false;
         } catch (Exception e) {
-            log.error("获取表[{}]的记录数或SUM值时出错: {}", tableName, e.getMessage(), e);
+            log.error("处理表[{}]时出错: {}", tableName, e.getMessage(), e);
             return false;
         }
     }
@@ -274,6 +300,21 @@ public class TableMetadataService {
     private void fetchMoneySums(JdbcTemplate jdbcTemplate, String tableName,
                                 String dataSourceName, TableInfo tableInfo,
                                 DbConfig whereConditionConfig) {
+        // 判断是否应该使用从节点查询
+        String dataSourceToUse = whereConditionConfig.getDataSourceToUse(tableName, dataSourceName);
+
+        // 根据数据源名称选择正确的JdbcTemplate
+        JdbcTemplate templateToUse = jdbcTemplate;
+        if ("ora-slave".equals(dataSourceToUse) && "ora".equals(dataSourceName)) {
+            templateToUse = oraSlaveJdbcTemplate;
+        }
+
+        // 使用不同的dataSourceName来构建日志信息，但不修改TableInfo中的dataSourceName
+        String logDataSourceName = dataSourceName;
+        if (!dataSourceToUse.equals(dataSourceName)) {
+            logDataSourceName = dataSourceToUse + "(替代" + dataSourceName + ")";
+        }
+        
         // 构建查询语句，一次查询所有字段的SUM
         List<String> sumExpressions = tableInfo.getMoneyFields().stream()
             .map(field -> StrUtil.format("SUM({}) AS \"{}\"", field, field))
@@ -286,11 +327,11 @@ public class TableMetadataService {
         sumSql = whereConditionConfig.applyCondition(sumSql, dataSourceName, tableName);
         // 应用SQL提示
         sumSql = whereConditionConfig.applySqlHint(sumSql, dataSourceName, tableName);
-        log.info("执行批量SUM查询: {}", sumSql);
+        log.info("执行批量SUM查询[{}]: {}", logDataSourceName, sumSql);
 
         // 执行查询并映射结果
         try {
-            Map<String, Object> resultMap = jdbcTemplate.queryForMap(sumSql);
+            Map<String, Object> resultMap = templateToUse.queryForMap(sumSql);
 
             // 使用Stream API处理所有金额字段的SUM结果，但用Java 8兼容的方式
             tableInfo.getMoneyFields().forEach(fieldName -> {

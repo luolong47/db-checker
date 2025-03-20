@@ -61,6 +61,11 @@ public class DbConfig {
      */
     private final Map<String, String> sqlHintCache = new ConcurrentHashMap<>();
     /**
+     * 从节点查询配置
+     */
+    @NestedConfigurationProperty
+    private SlaveQuery slaveQuery = new SlaveQuery();
+    /**
      * WHERE条件缓存: key=dataSourceName:tableName, value=条件语句(或null)
      */
     private final Map<String, String> conditionCache = new ConcurrentHashMap<>();
@@ -107,6 +112,7 @@ public class DbConfig {
         log.debug("配置信息 - 公式4适用表: {}", formula.getFormula4());
         log.debug("配置信息 - 公式5适用表: {}", formula.getFormula5());
         log.debug("配置信息 - 公式6适用表: {}", formula.getFormula6());
+        log.debug("配置信息 - 从节点查询表: {}", slaveQuery.getTables());
 
         // 记录SQL提示配置
         log.debug("配置信息 - SQL提示类型映射: {}", hints.getType());
@@ -441,6 +447,40 @@ public class DbConfig {
     }
 
     /**
+     * 判断表是否应该使用从节点查询
+     *
+     * @param tableName 表名
+     * @return 是否使用从节点查询
+     */
+    public boolean shouldUseSlaveQuery(String tableName) {
+        if (slaveQuery == null || StrUtil.isEmpty(slaveQuery.getTables())) {
+            return false;
+        }
+
+        String tables = slaveQuery.getTables();
+        return Arrays.asList(tables.split(","))
+            .stream()
+            .map(String::trim)
+            .map(String::toLowerCase)
+            .anyMatch(t -> t.equalsIgnoreCase(tableName));
+    }
+
+    /**
+     * 获取指定表应该使用的数据源名称
+     *
+     * @param tableName              表名
+     * @param originalDataSourceName 原始数据源名称
+     * @return 应该使用的数据源名称
+     */
+    public String getDataSourceToUse(String tableName, String originalDataSourceName) {
+        // 如果原始数据源是ora，并且表配置为使用从节点，则返回ora-slave
+        if ("ora".equalsIgnoreCase(originalDataSourceName) && shouldUseSlaveQuery(tableName)) {
+            return "ora-slave";
+        }
+        return originalDataSourceName;
+    }
+
+    /**
      * 包含配置类
      */
     @Data
@@ -555,5 +595,16 @@ public class DbConfig {
          * SQL提示配置，键为类型标识(如t1,t2)，值为SQL提示语句
          */
         private Map<String, String> sql = new HashMap<>();
+    }
+
+    /**
+     * 从节点查询配置
+     */
+    @Data
+    public static class SlaveQuery {
+        /**
+         * 要使用从节点查询的表名列表，多个表名使用逗号分隔
+         */
+        private String tables;
     }
 } 

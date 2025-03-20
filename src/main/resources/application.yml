@@ -43,6 +43,12 @@ spring:
       jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
       username: sa
       password:
+    # ora-slave数据源配置（ora的从节点）
+    ora-slave:
+      driver-class-name: org.h2.Driver
+      jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
+      username: sa
+      password:
     # rlcms_base数据源配置（原secondary）
     rlcms-base:
       driver-class-name: org.h2.Driver
@@ -150,3 +156,7 @@ db:
     sql:
       t1: '/*+ parallel(4) */'
       t2: '/*+ set(query_dop 4) */'
+  # 从节点查询配置
+  slave_query:
+    # 要使用从节点查询的表名列表，使用逗号分隔
+    tables:
