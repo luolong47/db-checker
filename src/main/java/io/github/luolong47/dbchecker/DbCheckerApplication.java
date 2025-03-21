@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker;
 
+import cn.hutool.core.date.StopWatch;
 import io.github.luolong47.dbchecker.config.DatabaseInitScriptsProperties;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.service.DatabaseService;
@@ -10,7 +11,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.util.StopWatch;
 
 @Slf4j
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
@@ -44,7 +44,7 @@ public class DbCheckerApplication {
 
                 // 停止计时并输出耗时
                 stopWatch.stop();
-                log.info("导出金额字段SUM比对结果完成，总耗时: {} 秒", stopWatch.getTotalTimeSeconds());
+                log.info("导出金额字段SUM比对结果完成，总耗时: {} 秒", stopWatch.getLastTaskTimeMillis() / 1000.0);
                 log.info("END");
             } catch (Exception e) {
                 log.error("测试多数据源时发生错误", e);

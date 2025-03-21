@@ -1,5 +1,7 @@
 package io.github.luolong47.dbchecker.config;
 
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,8 +13,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StopWatch;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -44,7 +44,7 @@ public class DatabaseInitializer implements CommandLineRunner {
         }
 
         Map<String, List<String>> scripts = initProperties.getScripts();
-        if (CollectionUtils.isEmpty(scripts)) {
+        if (CollUtil.isEmpty(scripts)) {
             log.warn("未配置任何初始化脚本");
             return;
         }
@@ -62,7 +62,7 @@ public class DatabaseInitializer implements CommandLineRunner {
             String dataSourceName = entry.getKey();
             List<String> scriptPaths = entry.getValue();
 
-            if (CollectionUtils.isEmpty(scriptPaths)) {
+            if (CollUtil.isEmpty(scriptPaths)) {
                 continue;
             }
 
