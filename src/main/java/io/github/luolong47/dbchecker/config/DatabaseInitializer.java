@@ -1,15 +1,13 @@
 package io.github.luolong47.dbchecker.config;
 
 import cn.hutool.core.util.StrUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.stereotype.Component;
@@ -28,9 +26,8 @@ import java.util.stream.Collectors;
  */
 @Component
 @Order(1)  // 确保在应用启动早期执行
+@Slf4j
 public class DatabaseInitializer implements CommandLineRunner {
-
-    private static final Logger logger = LoggerFactory.getLogger(DatabaseInitializer.class);
 
     @javax.annotation.Resource
     private DatabaseInitScriptsProperties initProperties;
@@ -42,20 +39,20 @@ public class DatabaseInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         if (!initProperties.isEnabled()) {
-            logger.info("数据库初始化已禁用");
+            log.info("数据库初始化已禁用");
             return;
         }
 
         Map<String, List<String>> scripts = initProperties.getScripts();
         if (CollectionUtils.isEmpty(scripts)) {
-            logger.warn("未配置任何初始化脚本");
+            log.warn("未配置任何初始化脚本");
             return;
         }
         
         // 记录所有可用的数据源键名，帮助排查问题
-        logger.info("可用的数据源键名: {}", 
+        log.info("可用的数据源键名: {}", 
                  dataSourceMap.keySet().stream().sorted().collect(Collectors.toList()));
-        logger.info("配置的脚本数据源键名: {}", 
+        log.info("配置的脚本数据源键名: {}", 
                  scripts.keySet().stream().sorted().collect(Collectors.toList()));
 
         StopWatch stopWatch = new StopWatch("数据库初始化");
@@ -71,7 +68,7 @@ public class DatabaseInitializer implements CommandLineRunner {
 
             DataSource dataSource = dataSourceMap.get(dataSourceName);
             if (dataSource == null) {
-                logger.warn("数据源 '{}' 不存在，跳过初始化脚本。可用的数据源: {}", 
+                log.warn("数据源 '{}' 不存在，跳过初始化脚本。可用的数据源: {}", 
                          dataSourceName, StrUtil.join(", ", dataSourceMap.keySet()));
                 continue;
             }
@@ -83,8 +80,8 @@ public class DatabaseInitializer implements CommandLineRunner {
                 stopWatch.stop();
             }
         }
-        
-        logger.info("数据库初始化完成: \n{}", stopWatch.prettyPrint());
+
+        log.info("数据库初始化完成: \n{}", stopWatch.prettyPrint());
     }
 
     /**
@@ -103,31 +100,31 @@ public class DatabaseInitializer implements CommandLineRunner {
             for (String path : scriptPaths) {
                 Resource resource = new ClassPathResource(path);
                 if (!resource.exists()) {
-                    logger.warn("脚本文件 '{}' 不存在，跳过", path);
+                    log.warn("脚本文件 '{}' 不存在，跳过", path);
                     continue;
                 }
                 
                 try {
-                    logger.info("添加脚本: {} 到数据源: {} (大小: {} 字节)", 
+                    log.info("添加脚本: {} 到数据源: {} (大小: {} 字节)", 
                              path, dataSourceName, resource.contentLength());
                     populator.addScript(resource);
                     validScripts++;
                 } catch (IOException e) {
-                    logger.warn("读取脚本文件 '{}' 失败: {}", path, e.getMessage());
+                    log.warn("读取脚本文件 '{}' 失败: {}", path, e.getMessage());
                 }
             }
 
             if (validScripts == 0) {
-                logger.warn("数据源 '{}' 没有有效的脚本文件", dataSourceName);
+                log.warn("数据源 '{}' 没有有效的脚本文件", dataSourceName);
                 return;
             }
 
-            logger.info("开始执行数据源 '{}' 的 {} 个初始化脚本", dataSourceName, validScripts);
+            log.info("开始执行数据源 '{}' 的 {} 个初始化脚本", dataSourceName, validScripts);
             populator.execute(dataSource);
-            logger.info("数据源 '{}' 的初始化脚本执行完成", dataSourceName);
+            log.info("数据源 '{}' 的初始化脚本执行完成", dataSourceName);
 
         } catch (Exception e) {
-            logger.error("执行数据源 '{}' 的初始化脚本时发生错误: {}", dataSourceName, e.getMessage(), e);
+            log.error("执行数据源 '{}' 的初始化脚本时发生错误: {}", dataSourceName, e.getMessage(), e);
         }
     }
 } 

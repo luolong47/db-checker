@@ -1,8 +1,7 @@
 package io.github.luolong47.dbchecker.model;
 
 import lombok.Data;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -11,9 +10,8 @@ import java.util.*;
  * 表信息类 - 存储表的元数据信息和各种统计结果
  */
 @Data
+@Slf4j
 public class TableInfo {
-    private static final Logger log = LoggerFactory.getLogger(TableInfo.class);
-
     // 基本属性
     private final String tableName;
     // 记录数
