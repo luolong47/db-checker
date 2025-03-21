@@ -110,7 +110,7 @@ public class TableMetadataService {
                 ResultSet tablesResultSet = metaData.getTables(null, null, "%", new String[]{"TABLE"});
 
                 // 收集需要处理的表
-                List<TableTask> tableTasks = new ArrayList<>();
+                List<String> tableTasks = new ArrayList<>();
 
                 while (tablesResultSet.next()) {
                     String tableName = tablesResultSet.getString("TABLE_NAME");
@@ -126,7 +126,7 @@ public class TableMetadataService {
                     }
 
                     // 将需要处理的表添加到任务列表
-                    tableTasks.add(new TableTask(tableName));
+                    tableTasks.add(tableName);
                 }
 
                 tablesResultSet.close();
@@ -163,7 +163,7 @@ public class TableMetadataService {
      * @param resumeStateManager 断点续跑状态管理器
      * @param resultTables 存储处理结果的列表
      */
-    private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData, List<TableTask> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
+    private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData, List<String> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
 
         // 创建线程池，控制并发数量
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_THREADS_PER_DB, tableTasks.size()));
@@ -171,22 +171,22 @@ public class TableMetadataService {
         // 创建CompletableFuture任务列表
         List<CompletableFuture<TableInfo>> futures = new ArrayList<>();
 
-        for (TableTask task : tableTasks) {
+        for (String task : tableTasks) {
             CompletableFuture<TableInfo> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    log.debug("开始处理表: {}", task.tableName);
-                    TableInfo tableInfo = processTable(jdbcTemplate, task.tableName, dataSourceName, metaData, whereConditionConfig);
+                    log.debug("开始处理表: {}", task);
+                    TableInfo tableInfo = processTable(jdbcTemplate, task, dataSourceName, metaData, whereConditionConfig);
 
                     if (tableInfo != null) {
                         // 使用synchronized确保线程安全
                         synchronized (resumeStateManager) {
                             // 标记该表为已处理
-                            resumeStateManager.markTableProcessed(task.tableName, dataSourceName);
+                            resumeStateManager.markTableProcessed(task, dataSourceName);
                         }
                         return tableInfo;
                     }
                 } catch (Exception e) {
-                    log.error("处理表[{}]时出错: {}", task.tableName, e.getMessage(), e);
+                    log.error("处理表[{}]时出错: {}", task, e.getMessage(), e);
                 }
                 return null;
             }, executor);
@@ -497,17 +497,6 @@ public class TableMetadataService {
 
             return false;
         });
-    }
-
-    /**
-     * 表任务类，用于存储需要处理的表信息
-     */
-    private static class TableTask {
-        private final String tableName;
-
-        public TableTask(String tableName) {
-            this.tableName = tableName;
-        }
     }
 
     /**
