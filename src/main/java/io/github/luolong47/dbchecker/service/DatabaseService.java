@@ -1,6 +1,7 @@
 package io.github.luolong47.dbchecker.service;
 
 import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.manager.ResumeStateManager;
 import io.github.luolong47.dbchecker.manager.TableInfoManager;
@@ -37,7 +38,7 @@ public class DatabaseService {
     private final JdbcTemplate bscopyPv1JdbcTemplate;
     private final JdbcTemplate bscopyPv2JdbcTemplate;
     private final JdbcTemplate bscopyPv3JdbcTemplate;
-    private final DbConfig whereConditionConfig;
+    private final DbConfig dbConfig;
     private final TableInfoManager tableInfoManager;
     private final ResumeStateManager resumeStateManager;
     private final FormulaCalculationService formulaCalculationService;
@@ -53,7 +54,7 @@ public class DatabaseService {
         @Qualifier("bscopyPv1JdbcTemplate") JdbcTemplate bscopyPv1JdbcTemplate,
         @Qualifier("bscopyPv2JdbcTemplate") JdbcTemplate bscopyPv2JdbcTemplate,
         @Qualifier("bscopyPv3JdbcTemplate") JdbcTemplate bscopyPv3JdbcTemplate,
-        DbConfig whereConditionConfig,
+        DbConfig dbConfig,
         TableInfoManager tableInfoManager,
         ResumeStateManager resumeStateManager,
         FormulaCalculationService formulaCalculationService,
@@ -67,7 +68,7 @@ public class DatabaseService {
         this.bscopyPv1JdbcTemplate = bscopyPv1JdbcTemplate;
         this.bscopyPv2JdbcTemplate = bscopyPv2JdbcTemplate;
         this.bscopyPv3JdbcTemplate = bscopyPv3JdbcTemplate;
-        this.whereConditionConfig = whereConditionConfig;
+        this.dbConfig = dbConfig;
         this.tableInfoManager = tableInfoManager;
         this.resumeStateManager = resumeStateManager;
         this.formulaCalculationService = formulaCalculationService;
@@ -80,13 +81,13 @@ public class DatabaseService {
     @PostConstruct
     public void init() {
         log.info("初始化数据库服务...");
-        log.debug("配置信息 - 导出目录: {}", whereConditionConfig.getExportDirectory());
-        log.debug("配置信息 - 运行模式: {}", whereConditionConfig.getRunMode());
-        log.debug("配置信息 - 包含表: {}", whereConditionConfig.getIncludeTables());
-        log.debug("配置信息 - 包含Schema: {}", whereConditionConfig.getIncludeSchemas());
+        log.debug("配置信息 - 导出目录: {}", dbConfig.getExportDirectory());
+        log.debug("配置信息 - 运行模式: {}", dbConfig.getRunMode());
+        log.debug("配置信息 - 包含表: {}", dbConfig.getIncludeTables());
+        log.debug("配置信息 - 包含Schema: {}", dbConfig.getIncludeSchemas());
 
         // 根据运行模式初始化状态
-        resumeStateManager.initResumeState(whereConditionConfig.getRunMode());
+        resumeStateManager.initResumeState(dbConfig.getRunMode());
     }
 
     /**
@@ -106,34 +107,34 @@ public class DatabaseService {
         allDatabases.put("bscopy_pv2", bscopyPv2JdbcTemplate);
         allDatabases.put("bscopy_pv3", bscopyPv3JdbcTemplate);
 
-        return resumeStateManager.filterDatabases(allDatabases, whereConditionConfig.getRunMode(), whereConditionConfig.getRerunDatabases());
+        return resumeStateManager.filterDatabases(allDatabases, dbConfig.getRunMode(), dbConfig.getRerunDatabases());
     }
 
     /**
      * 导出金额字段的SUM值到CSV文件
      */
     public void exportMoneyFieldSumToCsv() throws IOException {
-        log.info("当前运行模式: {}", whereConditionConfig.getRunMode());
-        if (!cn.hutool.core.util.StrUtil.isEmpty(whereConditionConfig.getRerunDatabases())) {
-            log.info("指定重跑数据库: {}", whereConditionConfig.getRerunDatabases());
+        log.info("当前运行模式: {}", dbConfig.getRunMode());
+        if (!cn.hutool.core.util.StrUtil.isEmpty(dbConfig.getRerunDatabases())) {
+            log.info("指定重跑数据库: {}", dbConfig.getRerunDatabases());
         }
 
         // 检查现有状态
         boolean hasRestoredTableInfo = tableInfoManager.hasTableInfo();
 
-        if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(whereConditionConfig.getRunMode())) {
+        if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(dbConfig.getRunMode())) {
             log.info("已从断点续跑文件恢复{}个表的信息，将继续处理未完成的数据库和表", tableInfoManager.getTableCount());
         } else {
             log.info("开始收集表信息...");
             // 如果没有恢复数据或不是断点续跑模式，则清空已有的表信息
-            if (!hasRestoredTableInfo || !"RESUME".equalsIgnoreCase(whereConditionConfig.getRunMode())) {
+            if (!hasRestoredTableInfo || !"RESUME".equalsIgnoreCase(dbConfig.getRunMode())) {
                 tableInfoManager.clearTableInfo();
             }
         }
 
         // 获取需要处理的数据库
         Map<String, JdbcTemplate> databasesToProcess = getDatabasesToProcess();
-        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), cn.hutool.core.util.StrUtil.join(", ", databasesToProcess.keySet()));
+        log.info("本次将处理{}个数据库: {}", databasesToProcess.size(), StrUtil.join(", ", databasesToProcess.keySet()));
 
         // 使用CompletableFuture并发获取表信息
         List<CompletableFuture<List<TableInfo>>> futures = new ArrayList<>();
@@ -143,7 +144,7 @@ public class DatabaseService {
             JdbcTemplate jdbcTemplate = entry.getValue();
 
             // 如果数据库已经处理过且从断点续跑恢复了数据，则跳过
-            if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(whereConditionConfig.getRunMode())
+            if (hasRestoredTableInfo && "RESUME".equalsIgnoreCase(dbConfig.getRunMode())
                 && resumeStateManager.isDatabaseProcessed(dbName)) {
                 log.info("数据库[{}]已在上次运行中处理，跳过", dbName);
                 continue;
@@ -151,8 +152,8 @@ public class DatabaseService {
 
             CompletableFuture<List<TableInfo>> future = CompletableFuture.supplyAsync(() -> {
                 List<TableInfo> tables = tableMetadataService.getTablesInfoFromDataSource(
-                    jdbcTemplate, dbName, whereConditionConfig.getIncludeSchemas(), whereConditionConfig.getIncludeTables(),
-                    whereConditionConfig, resumeStateManager, whereConditionConfig.getRunMode());
+                    jdbcTemplate, dbName, dbConfig.getIncludeSchemas(), dbConfig.getIncludeTables(),
+                    dbConfig, resumeStateManager, dbConfig.getRunMode());
                 log.info("从{}数据源获取到{}个表", dbName, tables.size());
                 return tables;
             });
@@ -184,7 +185,7 @@ public class DatabaseService {
         log.info("表信息收集完成，共发现{}个表", tableInfoManager.getTableCount());
 
         // 创建结果目录
-        File directory = new File(whereConditionConfig.getExportDirectory());
+        File directory = new File(dbConfig.getExportDirectory());
         if (!directory.exists()) {
             cn.hutool.core.io.FileUtil.mkdir(directory);
         }
