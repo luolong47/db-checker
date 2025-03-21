@@ -136,9 +136,6 @@ public class TableMetadataService {
                 if (!tableTasks.isEmpty()) {
                     processTablesInParallel(jdbcTemplate, dataSourceName, metaData, tableTasks, whereConditionConfig, resumeStateManager, tables);
                 }
-
-                log.info("从{}获取到{}个非系统表", dataSourceName, tables.size());
-
                 // 标记该数据库为已处理
                 resumeStateManager.markDatabaseProcessed(dataSourceName);
                 return tables;
@@ -281,7 +278,7 @@ public class TableMetadataService {
         }
 
         if (!tableInfo.getMoneyFields().isEmpty()) {
-            log.info("表[{}]中发现{}个金额字段: {}", tableName, tableInfo.getMoneyFields().size(), StrUtil.join(", ", tableInfo.getMoneyFields()));
+            log.debug("表[{}]中发现{}个金额字段: {}", tableName, tableInfo.getMoneyFields().size(), StrUtil.join(", ", tableInfo.getMoneyFields()));
         }
     }
 
@@ -360,7 +357,7 @@ public class TableMetadataService {
             // 应用SQL提示
             String sql = whereConditionConfig.applySqlHint(sqlBuilder.toString(), dataSourceName, tableName);
 
-            log.info("执行优化的COUNT和SUM查询[{}]: {}", logDataSourceName, sql);
+            log.debug("执行优化的COUNT和SUM查询[{}]: {}", logDataSourceName, sql);
             
             try {
                 // 执行查询并获取结果
@@ -410,54 +407,47 @@ public class TableMetadataService {
                 if (recordCountAll > 0 && !moneyFields.isEmpty()) {
                     // 处理所有金额字段
                     for (String fieldName : moneyFields) {
-                        // 处理无条件SUM值
-                        String allFieldKey = fieldName + "_ALL";
-                        Optional<BigDecimal> allDecimalOptional = Optional.ofNullable(resultMap.get(allFieldKey))
-                            .map(value -> {
+                        // 设置有条件SUM值
+                        Object value = resultMap.get(fieldName);
+                        BigDecimal sumValue = null;
+                        if (value != null) {
+                            try {
                                 if (value instanceof BigDecimal) {
-                                    return (BigDecimal) value;
+                                    sumValue = (BigDecimal) value;
+                                } else if (value instanceof Number) {
+                                    sumValue = BigDecimal.valueOf(((Number) value).doubleValue());
                                 } else {
-                                    try {
-                                        return new BigDecimal(value.toString());
-                                    } catch (NumberFormatException e) {
-                                        log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
-                                        return null;
-                                    }
+                                    sumValue = new BigDecimal(value.toString());
                                 }
-                            });
-
-                        // 设置无WHERE条件的SUM值
-                        BigDecimal sumValueAll = allDecimalOptional.orElse(BigDecimal.ZERO);
-                        if ("ora".equals(dataSourceName)) {
-                            tableInfo.setMoneySumAll(dataSourceName, fieldName, sumValueAll);
-                            log.info("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值为: {}", tableName, fieldName, dataSourceName, sumValueAll);
+                            } catch (NumberFormatException e) {
+                                log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
+                            }
                         }
-
-                        // 处理有条件SUM值
-                        Optional<BigDecimal> decimalOptional = Optional.ofNullable(resultMap.get(fieldName))
-                            .map(value -> {
-                                if (value instanceof BigDecimal) {
-                                    return (BigDecimal) value;
-                                } else {
-                                    try {
-                                        return new BigDecimal(value.toString());
-                                    } catch (NumberFormatException e) {
-                                        log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
-                                        return null;
-                                    }
-                                }
-                            });
-
-                        // 设置有WHERE条件的SUM值
-                        BigDecimal sumValue = decimalOptional.orElse(BigDecimal.ZERO);
                         tableInfo.setMoneySum(dataSourceName, fieldName, sumValue);
+
+                        // 设置无条件SUM值
+                        String fieldNameAll = fieldName + "_ALL";
+                        value = resultMap.get(fieldNameAll);
+                        BigDecimal sumValueAll = null;
+                        if (value != null) {
+                            try {
+                                if (value instanceof BigDecimal) {
+                                    sumValueAll = (BigDecimal) value;
+                                } else if (value instanceof Number) {
+                                    sumValueAll = BigDecimal.valueOf(((Number) value).doubleValue());
+                                } else {
+                                    sumValueAll = new BigDecimal(value.toString());
+                                }
+                            } catch (NumberFormatException e) {
+                                log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
+                            }
+                        }
+                        tableInfo.setMoneySumAll(dataSourceName, fieldName, sumValueAll);
+                        log.debug("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值为: {}", tableName, fieldName, dataSourceName, sumValueAll);
                         log.debug("表 {} 字段 {} 的SUM值为: {}", tableName, fieldName, sumValue);
                     }
 
-                    // 添加额外的日志，显示当前全部moneySumsAll的内容
-                    if ("ora".equals(dataSourceName)) {
-                        log.info("当前表[{}]的moneySumsAll内容: {}", tableName, tableInfo.getAllMoneySumsAll());
-                    }
+                    log.debug("当前表[{}]的moneySumsAll内容: {}", tableName, tableInfo.getAllMoneySumsAll());
                 }
 
                 return true;

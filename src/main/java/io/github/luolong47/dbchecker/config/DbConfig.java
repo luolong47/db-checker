@@ -91,11 +91,11 @@ public class DbConfig {
         if (where == null || where.isEmpty()) {
             log.warn("未加载任何db.where条件配置");
         } else {
-            log.info("已加载{}个数据源的条件配置:", where.size());
+            log.debug("已加载{}个数据源的条件配置:", where.size());
             for (Map.Entry<String, Map<String, String>> entry : where.entrySet()) {
                 String dataSource = entry.getKey();
                 Map<String, String> tableConditions = entry.getValue();
-                log.info("数据源[{}]条件配置: {}", dataSource, tableConditions);
+                log.debug("数据源[{}]条件配置: {}", dataSource, tableConditions);
             }
         }
 
@@ -154,7 +154,7 @@ public class DbConfig {
             }
         }
 
-        log.info("WHERE条件缓存初始化完成: {} 个缓存项", cacheCount);
+        log.debug("WHERE条件缓存初始化完成: {} 个缓存项", cacheCount);
     }
 
     /**
@@ -439,7 +439,7 @@ public class DbConfig {
             // 如果SQL语句包含SELECT，在SELECT后插入提示
             if (StrUtil.containsIgnoreCase(sql, "select")) {
                 String newSql = sql.replaceFirst("(?i)select", "select " + hint);
-                log.info("应用SQL提示 - 原SQL: [{}], 新SQL: [{}]", sql, newSql);
+                log.debug("应用SQL提示 - 原SQL: [{}], 新SQL: [{}]", sql, newSql);
                 return newSql;
             }
         }

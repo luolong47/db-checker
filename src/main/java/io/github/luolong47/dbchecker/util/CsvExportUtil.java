@@ -26,7 +26,7 @@ public class CsvExportUtil {
     public static void exportToCsv(File outputFile, List<MoneyFieldSumInfo> dataList,
                                    FormulaCalculationService formulaCalculationService) throws IOException {
         log.info("开始导出CSV: {}", outputFile.getAbsolutePath());
-        log.info("总数据量: {} 条记录", dataList.size());
+        log.debug("总数据量: {} 条记录", dataList.size());
 
         // 准备CSV数据
         List<List<String>> csvRows = prepareExportData(dataList, formulaCalculationService);
@@ -73,7 +73,7 @@ public class CsvExportUtil {
                 baseValues.add(oraAllValue);
 
                 // 添加日志输出
-                log.info("表[{}]字段[{}]的SUM_ORA_ALL值: {}, isCountField: {}, 实际查询值: {}",
+                log.debug("表[{}]字段[{}]的SUM_ORA_ALL值: {}, isCountField: {}, 实际查询值: {}",
                     info.getTableName(), info.getSumField(), oraAllValue, info.isCountField(),
                     info.getSumValueAllByDataSource("ora"));
 
@@ -165,7 +165,7 @@ public class CsvExportUtil {
                         // 每1000行记录一次日志
                         int index = rows.indexOf(row);
                         if (index % 1000 == 0) {
-                            log.info("已处理 {}/{} 行 ({}%)",
+                            log.debug("已处理 {}/{} 行 ({}%)",
                                 index, totalSize,
                                 Math.round((index * 100.0) / totalSize));
                         }

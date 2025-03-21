@@ -217,26 +217,26 @@ public class MoneyFieldSumInfo {
             // 对于记录数字段，返回无条件记录数
             if (tableInfo != null && tableInfo.getDataSources().contains(dataSource)) {
                 long countAll = tableInfo.getRecordCountAll(dataSource);
-                log.info("获取表[{}]在数据源[{}]中的无条件记录数: {}", tableName, dataSource, countAll);
+                log.debug("获取表[{}]在数据源[{}]中的无条件记录数: {}", tableName, dataSource, countAll);
                 return BigDecimal.valueOf(countAll);
             }
             return null;
         }
 
         // 输出实际存储的所有键值对
-        log.info("表[{}]字段[{}]的moneySumsAll内容: {}", tableName, sumField, tableInfo.getAllMoneySumsAll());
+        log.debug("表[{}]字段[{}]的moneySumsAll内容: {}", tableName, sumField, tableInfo.getAllMoneySumsAll());
 
         // 只有当表所在数据源列表中包含该数据源时，才返回对应的无WHERE条件SUM值
         if (tableInfo.getDataSources().contains(dataSource)) {
             Map<String, BigDecimal> fieldMap = tableInfo.getAllMoneySumsAll().get(dataSource);
-            log.info("获取表[{}]字段[{}]在数据源[{}]中的无条件SUM值, fieldMap: {}, sumField: {}",
+            log.debug("获取表[{}]字段[{}]在数据源[{}]中的无条件SUM值, fieldMap: {}, sumField: {}",
                 tableName, sumField, dataSource, fieldMap, sumField);
 
             BigDecimal result = Optional.ofNullable(fieldMap)
                 .map(map -> map.get(sumField))
                 .orElse(null);
 
-            log.info("表[{}]字段[{}]在数据源[{}]中的无条件SUM值结果: {}",
+            log.debug("表[{}]字段[{}]在数据源[{}]中的无条件SUM值结果: {}",
                 tableName, sumField, dataSource, result);
 
             return result;

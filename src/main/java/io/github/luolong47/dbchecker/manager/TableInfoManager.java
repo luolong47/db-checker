@@ -66,7 +66,7 @@ public class TableInfoManager {
                     table.getMoneyFields().forEach(metaInfo::addMoneyField);
 
                     if (!table.getMoneyFields().isEmpty()) {
-                        log.info("表 {} 发现{}个金额字段: {}",
+                        log.debug("表 {} 发现{}个金额字段: {}",
                             table.getTableName(),
                             table.getMoneyFields().size(),
                             StrUtil.join(", ", table.getMoneyFields()));
@@ -93,7 +93,7 @@ public class TableInfoManager {
                 if (fieldSumsAll != null && !fieldSumsAll.isEmpty()) {
                     fieldSumsAll.forEach((fieldName, sumValueAll) -> {
                         metaInfo.setMoneySumAll(sourceName, fieldName, sumValueAll);
-                        log.info("复制表[{}]字段[{}]在数据源[{}]中的无条件SUM值: {}",
+                        log.debug("复制表[{}]字段[{}]在数据源[{}]中的无条件SUM值: {}",
                             table.getTableName(), fieldName, sourceName, sumValueAll);
                     });
                 }

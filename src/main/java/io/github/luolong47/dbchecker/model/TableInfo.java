@@ -140,7 +140,7 @@ public class TableInfo {
      */
     public void setMoneySumAll(String dataSource, String fieldName, BigDecimal sum) {
         this.moneySumsAll.computeIfAbsent(dataSource, k -> new HashMap<>()).put(fieldName, sum);
-        log.info("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值到moneySumsAll: {}", tableName, fieldName, dataSource, sum);
+        log.debug("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值到moneySumsAll: {}", tableName, fieldName, dataSource, sum);
     }
 
     /**
@@ -169,7 +169,7 @@ public class TableInfo {
      * @return 数据源和字段总和结果的嵌套映射，第一层key为数据源名称，第二层key为字段名称
      */
     public Map<String, Map<String, BigDecimal>> getAllMoneySumsAll() {
-        log.info("获取表[{}]的所有无条件SUM值: {}", tableName, moneySumsAll);
+        log.debug("获取表[{}]的所有无条件SUM值: {}", tableName, moneySumsAll);
         return moneySumsAll;
     }
 }

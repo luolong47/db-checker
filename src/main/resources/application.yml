@@ -96,8 +96,8 @@ spring:
 logging:
   level:
     root: info
-    org.springframework.jdbc.core: debug
-    io.github.luolong47.dbchecker: debug
+    org.springframework.jdbc.core: info
+    io.github.luolong47.dbchecker: info
     com.zaxxer.hikari: warn
     # 日志文件配置
   file:

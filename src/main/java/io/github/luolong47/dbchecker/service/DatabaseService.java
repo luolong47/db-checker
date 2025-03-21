@@ -80,10 +80,10 @@ public class DatabaseService {
     @PostConstruct
     public void init() {
         log.info("初始化数据库服务...");
-        log.info("配置信息 - 导出目录: {}", whereConditionConfig.getExportDirectory());
-        log.info("配置信息 - 运行模式: {}", whereConditionConfig.getRunMode());
-        log.info("配置信息 - 包含表: {}", whereConditionConfig.getIncludeTables());
-        log.info("配置信息 - 包含Schema: {}", whereConditionConfig.getIncludeSchemas());
+        log.debug("配置信息 - 导出目录: {}", whereConditionConfig.getExportDirectory());
+        log.debug("配置信息 - 运行模式: {}", whereConditionConfig.getRunMode());
+        log.debug("配置信息 - 包含表: {}", whereConditionConfig.getIncludeTables());
+        log.debug("配置信息 - 包含Schema: {}", whereConditionConfig.getIncludeSchemas());
 
         // 根据运行模式初始化状态
         resumeStateManager.initResumeState(whereConditionConfig.getRunMode());
@@ -196,8 +196,6 @@ public class DatabaseService {
         // 输出到CSV
         List<MoneyFieldSumInfo> dataList = formulaCalculationService.prepareExportData(tableInfoManager.getTableInfoMap());
         CsvExportUtil.exportToCsv(outputFile, dataList, formulaCalculationService);
-
-        log.info("金额字段SUM比对结果已成功导出到: {}", outputFile);
 
         // 在最后，确保所有处理都被标记为已完成
         resumeStateManager.saveResumeState(tableInfoManager.getTableInfoMap());
