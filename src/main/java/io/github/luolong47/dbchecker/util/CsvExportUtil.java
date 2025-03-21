@@ -46,7 +46,7 @@ public class CsvExportUtil {
         String[] headers = {
             "表名", "所在库",
             "金额字段", "统计项",
-            "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
+            "SUM_ORA_ALL", "SUM_ORA", "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3", "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
             "应用公式", "公式结果", "差异值", "差异描述"
         };
 
@@ -68,7 +68,16 @@ public class CsvExportUtil {
                 baseValues.add(escapeCsvValue(info.getMoneyFields()));
                 baseValues.add(escapeCsvValue(info.getSumField()));
 
-                // 添加各数据源的值
+                // 添加ORA数据源的无WHERE条件SUM值
+                String oraAllValue = formatValue(info.getSumValueAllByDataSource("ora"));
+                baseValues.add(oraAllValue);
+
+                // 添加日志输出
+                log.info("表[{}]字段[{}]的SUM_ORA_ALL值: {}, isCountField: {}, 实际查询值: {}",
+                    info.getTableName(), info.getSumField(), oraAllValue, info.isCountField(),
+                    info.getSumValueAllByDataSource("ora"));
+
+                // 添加各数据源的WHERE条件SUM值
                 Arrays.stream(dataSources).forEach(ds -> {
                     String value = info.isCountField()
                         ? formatValue(info.getCountValueByDataSource(ds))

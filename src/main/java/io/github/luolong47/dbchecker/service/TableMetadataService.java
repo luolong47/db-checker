@@ -225,12 +225,33 @@ public class TableMetadataService {
             // 获取所有金额字段
             List<String> moneyFields = new ArrayList<>(tableInfo.getMoneyFields());
 
-            // 构建SQL查询语句 - 无论是否有金额字段都使用同一种查询方式
-            StringBuilder sqlBuilder = new StringBuilder("SELECT COUNT(*) AS \"_record_count\"");
+            // 获取WHERE条件
+            String whereCondition = whereConditionConfig.getCondition(dataSourceName, tableName);
+            boolean hasWhereCondition = whereCondition != null && !whereCondition.isEmpty();
 
-            // 如果有金额字段，添加SUM表达式
-            if (!moneyFields.isEmpty()) {
-                for (String field : moneyFields) {
+            // 构建优化后的SQL查询，同时获取有条件和无条件的统计数据
+            StringBuilder sqlBuilder = new StringBuilder();
+            sqlBuilder.append("SELECT ");
+
+            // 计算总记录数
+            sqlBuilder.append("COUNT(*) AS \"_record_count_all\"");
+
+            // 如果有WHERE条件，计算满足条件的记录数
+            if (hasWhereCondition) {
+                sqlBuilder.append(", SUM(CASE WHEN ").append(whereCondition).append(" THEN 1 ELSE 0 END) AS \"_record_count\"");
+            } else {
+                sqlBuilder.append(", COUNT(*) AS \"_record_count\"");
+            }
+
+            // 添加金额字段的聚合
+            for (String field : moneyFields) {
+                // 无条件SUM
+                sqlBuilder.append(", SUM(").append(field).append(") AS \"").append(field).append("_ALL\"");
+
+                // 有条件SUM
+                if (hasWhereCondition) {
+                    sqlBuilder.append(", SUM(CASE WHEN ").append(whereCondition).append(" THEN ").append(field).append(" ELSE 0 END) AS \"").append(field).append("\"");
+                } else {
                     sqlBuilder.append(", SUM(").append(field).append(") AS \"").append(field).append("\"");
                 }
             }
@@ -238,27 +259,36 @@ public class TableMetadataService {
             // 添加表名
             sqlBuilder.append(" FROM ").append(tableName);
 
-            // 生成最终SQL
-            String sql = sqlBuilder.toString();
-
-            // 应用WHERE条件
-            sql = whereConditionConfig.applyCondition(sql, dataSourceName, tableName);
-
             // 应用SQL提示
-            sql = whereConditionConfig.applySqlHint(sql, dataSourceName, tableName);
+            String sql = whereConditionConfig.applySqlHint(sqlBuilder.toString(), dataSourceName, tableName);
 
-            // 根据是否有金额字段选择日志级别和消息
-            if (!moneyFields.isEmpty()) {
-                log.info("执行合并的COUNT和SUM查询[{}]: {}", logDataSourceName, sql);
-            } else {
-                log.debug("执行COUNT查询[{}]: {}", logDataSourceName, sql);
-            }
-
+            log.info("执行优化的COUNT和SUM查询[{}]: {}", logDataSourceName, sql);
+            
             try {
                 // 执行查询并获取结果
                 Map<String, Object> resultMap = templateToUse.queryForMap(sql);
 
-                // 提取记录数
+                // 提取总记录数（无条件）
+                Object recordCountAllObj = resultMap.get("_record_count_all");
+                int recordCountAll = 0;
+
+                if (recordCountAllObj != null) {
+                    if (recordCountAllObj instanceof Number) {
+                        recordCountAll = ((Number) recordCountAllObj).intValue();
+                    } else {
+                        try {
+                            recordCountAll = Integer.parseInt(recordCountAllObj.toString());
+                        } catch (NumberFormatException e) {
+                            log.error("无法将 {} 转换为整数: {}", recordCountAllObj, e.getMessage());
+                        }
+                    }
+                }
+
+                // 设置无WHERE条件的记录数
+                tableInfo.setRecordCountAll(dataSourceName, recordCountAll);
+                log.debug("表[{}]在数据源[{}]中的无条件记录数: {}", tableName, logDataSourceName, recordCountAll);
+
+                // 提取有条件记录数
                 Object recordCountObj = resultMap.get("_record_count");
                 int recordCount = 0;
 
@@ -274,13 +304,38 @@ public class TableMetadataService {
                     }
                 }
 
-                // 设置记录数
+                // 设置有WHERE条件的记录数
                 tableInfo.setRecordCount(dataSourceName, recordCount);
                 log.debug("表[{}]在数据源[{}]中的记录数: {}", tableName, logDataSourceName, recordCount);
 
-                // 如果有金额字段且记录数大于0，处理SUM结果
-                if (!moneyFields.isEmpty() && recordCount > 0) {
-                    moneyFields.forEach(fieldName -> {
+                // 处理金额字段SUM结果
+                if (recordCountAll > 0 && !moneyFields.isEmpty()) {
+                    // 处理所有金额字段
+                    for (String fieldName : moneyFields) {
+                        // 处理无条件SUM值
+                        String allFieldKey = fieldName + "_ALL";
+                        Optional<BigDecimal> allDecimalOptional = Optional.ofNullable(resultMap.get(allFieldKey))
+                            .map(value -> {
+                                if (value instanceof BigDecimal) {
+                                    return (BigDecimal) value;
+                                } else {
+                                    try {
+                                        return new BigDecimal(value.toString());
+                                    } catch (NumberFormatException e) {
+                                        log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
+                                        return null;
+                                    }
+                                }
+                            });
+
+                        // 设置无WHERE条件的SUM值
+                        BigDecimal sumValueAll = allDecimalOptional.orElse(BigDecimal.ZERO);
+                        if ("ora".equals(dataSourceName)) {
+                            tableInfo.setMoneySumAll(dataSourceName, fieldName, sumValueAll);
+                            log.info("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值为: {}", tableName, fieldName, dataSourceName, sumValueAll);
+                        }
+
+                        // 处理有条件SUM值
                         Optional<BigDecimal> decimalOptional = Optional.ofNullable(resultMap.get(fieldName))
                             .map(value -> {
                                 if (value instanceof BigDecimal) {
@@ -295,25 +350,25 @@ public class TableMetadataService {
                                 }
                             });
 
-                        // 设置SUM值
+                        // 设置有WHERE条件的SUM值
                         BigDecimal sumValue = decimalOptional.orElse(BigDecimal.ZERO);
                         tableInfo.setMoneySum(dataSourceName, fieldName, sumValue);
                         log.debug("表 {} 字段 {} 的SUM值为: {}", tableName, fieldName, sumValue);
-                    });
-                } else if (!moneyFields.isEmpty()) {
-                    // 记录数为0时，所有金额字段SUM都设为0
-                    moneyFields.forEach(fieldName ->
-                        tableInfo.setMoneySum(dataSourceName, fieldName, BigDecimal.ZERO));
+                    }
+
+                    // 添加额外的日志，显示当前全部moneySumsAll的内容
+                    if ("ora".equals(dataSourceName)) {
+                        log.info("当前表[{}]的moneySumsAll内容: {}", tableName, tableInfo.getAllMoneySumsAll());
+                    }
                 }
 
                 return true;
             } catch (Exception e) {
-                // 统一处理所有异常
-                log.error("执行表[{}]的查询时出错: {}", tableName, e.getMessage());
+                log.error("执行优化的COUNT和SUM查询出错[{}]：{}", tableName, e.getMessage());
                 return false;
             }
         } catch (Exception e) {
-            log.error("处理表[{}]时出错: {}", tableName, e.getMessage(), e);
+            log.error("处理表 {} 的记录数和金额字段SUM时出错: {}", tableName, e.getMessage(), e);
             return false;
         }
     }

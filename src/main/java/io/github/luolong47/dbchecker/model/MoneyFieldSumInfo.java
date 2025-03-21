@@ -3,6 +3,8 @@ package io.github.luolong47.dbchecker.model;
 import cn.hutool.core.annotation.Alias;
 import cn.hutool.core.util.StrUtil;
 import lombok.Data;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -14,6 +16,8 @@ import java.util.Optional;
  */
 @Data
 public class MoneyFieldSumInfo {
+    private static final Logger log = LoggerFactory.getLogger(MoneyFieldSumInfo.class);
+
     // 表名
     private final String tableName;
     // 求和字段名称
@@ -60,6 +64,13 @@ public class MoneyFieldSumInfo {
     private Map<String, BigDecimal> sumValues = new HashMap<>();
 
     /**
+     * 各数据源中金额字段的无WHERE条件SUM值
+     * key: SUM_ORA_ALL, SUM_RLCMS_BASE_ALL, SUM_RLCMS_PV1_ALL etc.
+     * value: 对应的无WHERE条件SUM结果
+     */
+    private Map<String, BigDecimal> sumValuesAll = new HashMap<>();
+
+    /**
      * 根据表元数据和指定的金额字段构造对象
      *
      * @param tableName  表名
@@ -96,6 +107,13 @@ public class MoneyFieldSumInfo {
                         BigDecimal sum = fieldSums.get(moneyField);
                         this.setSumValueByName(ds, sum);
                     }
+
+                    // 获取该数据源下该字段的无WHERE条件SUM值
+                    Map<String, BigDecimal> fieldSumsAll = tableInfo.getAllMoneySumsAll().get(ds);
+                    if (fieldSumsAll != null && fieldSumsAll.containsKey(moneyField)) {
+                        BigDecimal sumAll = fieldSumsAll.get(moneyField);
+                        this.setSumValueAllByName(ds, sumAll);
+                    }
                 }
             }
         }
@@ -121,6 +139,16 @@ public class MoneyFieldSumInfo {
      */
     public void setSumValueByName(String sourceName, BigDecimal value) {
         sumValues.put("SUM_" + sourceName.toUpperCase().replace('-', '_'), value);
+    }
+
+    /**
+     * 设置指定数据源的无WHERE条件SUM值
+     *
+     * @param sourceName 数据源名称
+     * @param value      无WHERE条件SUM值
+     */
+    public void setSumValueAllByName(String sourceName, BigDecimal value) {
+        sumValuesAll.put("SUM_" + sourceName.toUpperCase().replace('-', '_') + "_ALL", value);
     }
 
     /**
@@ -174,6 +202,43 @@ public class MoneyFieldSumInfo {
         // 只有当表所在数据源列表中包含该数据源时，才返回对应的记录数
         if (tableInfo != null && tableInfo.getDataSources().contains(dataSource)) {
             return tableInfo.getRecordCounts().getOrDefault(dataSource, 0L);
+        }
+
+        // 对于不在表数据源列表中的数据源，返回null
+        return null;
+    }
+
+    /**
+     * 获取指定数据源的无WHERE条件SUM值
+     */
+    public BigDecimal getSumValueAllByDataSource(String dataSource) {
+        if (isCountField) {
+            // 对于记录数字段，返回无条件记录数
+            if (tableInfo != null && tableInfo.getDataSources().contains(dataSource)) {
+                long countAll = tableInfo.getRecordCountAll(dataSource);
+                log.info("获取表[{}]在数据源[{}]中的无条件记录数: {}", tableName, dataSource, countAll);
+                return BigDecimal.valueOf(countAll);
+            }
+            return null;
+        }
+
+        // 输出实际存储的所有键值对
+        log.info("表[{}]字段[{}]的moneySumsAll内容: {}", tableName, sumField, tableInfo.getAllMoneySumsAll());
+
+        // 只有当表所在数据源列表中包含该数据源时，才返回对应的无WHERE条件SUM值
+        if (tableInfo.getDataSources().contains(dataSource)) {
+            Map<String, BigDecimal> fieldMap = tableInfo.getAllMoneySumsAll().get(dataSource);
+            log.info("获取表[{}]字段[{}]在数据源[{}]中的无条件SUM值, fieldMap: {}, sumField: {}",
+                tableName, sumField, dataSource, fieldMap, sumField);
+
+            BigDecimal result = Optional.ofNullable(fieldMap)
+                .map(map -> map.get(sumField))
+                .orElse(null);
+
+            log.info("表[{}]字段[{}]在数据源[{}]中的无条件SUM值结果: {}",
+                tableName, sumField, dataSource, result);
+
+            return result;
         }
 
         // 对于不在表数据源列表中的数据源，返回null

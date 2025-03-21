@@ -2,9 +2,11 @@ package io.github.luolong47.dbchecker.manager;
 
 import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.model.TableInfo;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,17 +16,11 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+@Data
 public class TableInfoManager {
 
     // 存储所有表的元数据信息
     private final Map<String, TableInfo> tableInfoMap = new HashMap<>();
-
-    /**
-     * 获取表信息映射
-     */
-    public Map<String, TableInfo> getTableInfoMap() {
-        return tableInfoMap;
-    }
 
     /**
      * a获取表数量
@@ -48,22 +44,6 @@ public class TableInfoManager {
     }
 
     /**
-     * 获取指定表的信息
-     */
-    public TableInfo getTableInfo(String tableName) {
-        return tableInfoMap.get(tableName);
-    }
-
-    /**
-     * 添加表信息
-     */
-    public void addTableInfo(TableInfo tableInfo) {
-        if (tableInfo != null) {
-            tableInfoMap.put(tableInfo.getTableName(), tableInfo);
-        }
-    }
-
-    /**
      * 将表信息列表添加到映射中，使用表名作为唯一标识
      */
     public void addTableInfoList(List<TableInfo> tables, String sourceName) {
@@ -76,6 +56,8 @@ public class TableInfoManager {
             // 添加数据源和记录数
             metaInfo.addDataSource(sourceName);
             metaInfo.setRecordCount(sourceName, table.getRecordCount());
+            // 添加无条件记录数
+            metaInfo.setRecordCountAll(sourceName, table.getRecordCountAll(sourceName));
 
             // 添加金额字段（从TableInfo直接获取）
             if (metaInfo.getMoneyFields().isEmpty() && !table.getMoneyFields().isEmpty()) {
@@ -102,6 +84,19 @@ public class TableInfoManager {
                     log.debug("表 {} 字段 {} 在数据源 {} 的SUM值为: {}",
                         table.getTableName(), fieldName, sourceName, sumValue);
                 });
+            }
+
+            // 添加无条件求和结果
+            Map<String, Map<String, BigDecimal>> allMoneySumsAll = table.getAllMoneySumsAll();
+            if (allMoneySumsAll != null && !allMoneySumsAll.isEmpty()) {
+                Map<String, BigDecimal> fieldSumsAll = allMoneySumsAll.get(sourceName);
+                if (fieldSumsAll != null && !fieldSumsAll.isEmpty()) {
+                    fieldSumsAll.forEach((fieldName, sumValueAll) -> {
+                        metaInfo.setMoneySumAll(sourceName, fieldName, sumValueAll);
+                        log.info("复制表[{}]字段[{}]在数据源[{}]中的无条件SUM值: {}",
+                            table.getTableName(), fieldName, sourceName, sumValueAll);
+                    });
+                }
             }
         });
 

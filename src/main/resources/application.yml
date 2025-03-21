@@ -128,7 +128,7 @@ db:
     databases:
   where:
     ora:
-      test1: "amount1 = 1000.123"
+      ORDERS: "id in ( 1, 2 )"
       users: "username = 'user1'"
     rlcms-pv1:
       orders: "user_id = 1"
@@ -151,7 +151,7 @@ db:
       t1: ora
       t2: rlcms_pv1,rlcms_pv2,rlcms_pv3,bscopy_pv1,bscopy_pv2,bscopy_pv3,rlcms_base
     table:
-      t1: INVENTORY,SALES, USERS
+      t1: INVENTORY,SALES, USERS,ORDERS
       t2: PAYMENTS,USERS
     sql:
       t1: '/*+ parallel(4) */'
