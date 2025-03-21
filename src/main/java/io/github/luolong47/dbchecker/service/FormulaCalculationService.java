@@ -282,7 +282,8 @@ public class FormulaCalculationService {
 
         // 1. 处理有金额字段的表 - 首先添加COUNT特殊字段，然后添加所有金额字段
         tableGroups.entrySet().stream()
-            .filter(entry -> !entry.getValue().isEmpty()) // 过滤掉没有金额字段的表
+            // 过滤掉没有金额字段的表
+            .filter(entry -> !entry.getValue().isEmpty())
             .forEach(entry -> {
                 String tableName = entry.getKey();
                 List<MoneyFieldSumInfo> tableData = entry.getValue();
@@ -302,7 +303,8 @@ public class FormulaCalculationService {
 
         // 2. 处理没有金额字段的表 - 仅添加COUNT特殊字段
         tablesWithoutMoneyFields.stream()
-            .filter(tableName -> !processedCountTables.contains(tableName)) // 避免重复添加
+            // 避免重复添加
+            .filter(tableName -> !processedCountTables.contains(tableName))
             .map(tableInfoMap::get)
             .filter(Objects::nonNull)
             .map(info -> {
@@ -318,4 +320,4 @@ public class FormulaCalculationService {
                 .thenComparing(MoneyFieldSumInfo::getSumField))
             .collect(Collectors.toList());
     }
-} 
+}

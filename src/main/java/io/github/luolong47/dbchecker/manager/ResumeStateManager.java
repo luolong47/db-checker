@@ -194,8 +194,10 @@ public class ResumeStateManager {
                 .collect(Collectors.toMap(
                     dbName -> dbName,
                     allDatabases::get,
-                    (v1, v2) -> v1, // 处理键冲突
-                    LinkedHashMap::new // 保持顺序
+                    // 处理键冲突
+                    (v1, v2) -> v1,
+                    // 保持顺序
+                    LinkedHashMap::new
                 ));
         }
 
@@ -288,4 +290,4 @@ public class ResumeStateManager {
             .filter(key -> key.startsWith(tableName + ":" + dataSourceName + ":"))
             .forEach(tableProcessingCache::remove);
     }
-} 
+}

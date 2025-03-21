@@ -26,7 +26,9 @@ public class Formula3Strategy implements FormulaStrategy {
     @Override
     public String calculateSum(MoneyFieldSumInfo info) {
         Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) return "N/A";
+        if (containsNull(values)) {
+            return "N/A";
+        }
 
         return valueCollector.areAllValuesEqual(values.values().toArray(new BigDecimal[0])) ? "TRUE" : "FALSE";
     }
@@ -34,7 +36,9 @@ public class Formula3Strategy implements FormulaStrategy {
     @Override
     public String calculateCount(MoneyFieldSumInfo info) {
         Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) return "N/A";
+        if (containsNull(values)) {
+            return "N/A";
+        }
 
         return valueCollector.areAllCountValuesEqual(values.values()) ? "TRUE" : "FALSE";
     }
@@ -42,13 +46,15 @@ public class Formula3Strategy implements FormulaStrategy {
     @Override
     public DiffInfo getDiffInfoForSum(MoneyFieldSumInfo info) {
         Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) return new DiffInfo("N/A", "");
+        if (containsNull(values)) {
+            return new DiffInfo("N/A", "");
+        }
 
         List<String> diffs = new ArrayList<>();
         BigDecimal reference = values.get("ora");
         BigDecimal totalDiff = BigDecimal.ZERO;
         for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
-            if (!entry.getKey().equals("ora")) {
+            if (!"ora".equals(entry.getKey())) {
                 BigDecimal diff = reference.subtract(entry.getValue());
                 totalDiff = totalDiff.add(diff.abs());
                 if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
@@ -66,13 +72,15 @@ public class Formula3Strategy implements FormulaStrategy {
     @Override
     public DiffInfo getDiffInfoForCount(MoneyFieldSumInfo info) {
         Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) return new DiffInfo("N/A", "");
+        if (containsNull(values)) {
+            return new DiffInfo("N/A", "");
+        }
 
         List<String> diffs = new ArrayList<>();
         Long reference = values.get("ora");
         long totalDiff = 0;
         for (Map.Entry<String, Long> entry : values.entrySet()) {
-            if (!entry.getKey().equals("ora") && !reference.equals(entry.getValue())) {
+            if (!"ora".equals(entry.getKey()) && !reference.equals(entry.getValue())) {
                 long diff = Math.abs(reference - entry.getValue());
                 totalDiff += diff;
                 diffs.add(String.format("%s(%d)", entry.getKey(), entry.getValue()));

@@ -142,7 +142,8 @@ public class CsvExportUtil {
      */
     private static void writeToCsvFile(File outputFile, List<List<String>> rows) throws IOException {
         log.info("开始写入CSV文件: {}", outputFile.getAbsolutePath());
-        int totalSize = rows.size() - 1; // 减去表头
+        // 减去表头
+        int totalSize = rows.size() - 1;
 
         try (FileOutputStream fos = new FileOutputStream(outputFile);
              OutputStreamWriter osw = new OutputStreamWriter(fos, "GBK");
@@ -178,4 +179,4 @@ public class CsvExportUtil {
 
         log.info("CSV文件写入完成: {}", outputFile.getAbsolutePath());
     }
-} 
+}

@@ -19,31 +19,78 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 表元数据服务
+ * 表元数据服务，负责从数据源获取表的元数据信息，包括表结构、记录数和金额字段的统计数据。
+ * <p>
+ * 该服务主要功能包括：
+ * <ul>
+ *   <li>获取数据源中的所有表信息</li>
+ *   <li>识别和处理表中的金额字段</li>
+ *   <li>统计表的记录数（含条件和无条件）</li>
+ *   <li>计算金额字段的求和（含条件和无条件）</li>
+ * </ul>
+ * <p>
+ * 服务采用多线程并发处理以提高性能，同时支持主从数据源切换和断点续跑。
+ *
+ * @author luolong47
  */
 @Slf4j
 @Service
 public class TableMetadataService {
 
-    // 创建一个线程池，用于处理单个数据库内的表查询
-    private static final int MAX_THREADS_PER_DB = 10; // 每个数据库最大并发线程数
+    /**
+     * 每个数据库最大并发线程数，用于控制单个数据库内的表查询并发度
+     */
+    private static final int MAX_THREADS_PER_DB = 10;
 
-    // 缓存数值类型
-    private static final Set<Integer> NUMERIC_TYPES = new HashSet<>(Arrays.asList(Types.NUMERIC, Types.DECIMAL, Types.DOUBLE, Types.FLOAT, Types.INTEGER, Types.BIGINT, Types.SMALLINT, Types.TINYINT));
-    // 缓存schema和table的包含关系
+    /**
+     * 支持的数值类型集合，用于识别金额字段
+     */
+    private static final Set<Integer> NUMERIC_TYPES = new HashSet<>(Arrays.asList(
+        Types.NUMERIC, Types.DECIMAL, Types.DOUBLE, Types.FLOAT,
+        Types.INTEGER, Types.BIGINT, Types.SMALLINT, Types.TINYINT
+    ));
+
+    /** 缓存schema和table的包含关系，避免重复判断 */
     private final Map<String, Boolean> schemaTableCache = new ConcurrentHashMap<>();
 
+    /** Oracle主库数据源 */
     private final JdbcTemplate oraJdbcTemplate;
+
+    /** Oracle从库数据源 */
     private final JdbcTemplate oraSlaveJdbcTemplate;
 
-    public TableMetadataService(@Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate, @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate) {
+    /**
+     * 构造函数，初始化Oracle主从数据源
+     *
+     * @param oraJdbcTemplate      Oracle主库数据源
+     * @param oraSlaveJdbcTemplate Oracle从库数据源
+     */
+    public TableMetadataService(
+        @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
+        @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate) {
         this.oraJdbcTemplate = oraJdbcTemplate;
-        // 保存所有JdbcTemplate的引用
         this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
     }
 
     /**
-     * 从数据源获取表信息，同时获取表的记录数和金额字段的求和
+     * 从数据源获取表信息，同时获取表的记录数和金额字段的求和。
+     * <p>
+     * 该方法会：
+     * <ul>
+     *   <li>检查数据库是否需要处理（支持断点续跑）</li>
+     *   <li>获取所有符合条件的表</li>
+     *   <li>并发处理每个表的元数据信息</li>
+     *   <li>统计表的记录数和金额字段求和</li>
+     * </ul>
+     *
+     * @param jdbcTemplate JdbcTemplate实例，用于数据库操作
+     * @param dataSourceName 数据源名称
+     * @param includeSchemas 需要包含的schema列表，多个schema用逗号分隔
+     * @param includeTables 需要包含的表名列表，多个表名用逗号分隔
+     * @param whereConditionConfig 条件配置，用于过滤记录
+     * @param resumeStateManager 断点续跑状态管理器
+     * @param runMode 运行模式
+     * @return 表信息列表，如果出错则返回空列表
      */
     public List<TableInfo> getTablesInfoFromDataSource(JdbcTemplate jdbcTemplate, String dataSourceName, String includeSchemas, String includeTables, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, String runMode) {
         // 检查是否应该处理该数据库
@@ -106,7 +153,18 @@ public class TableMetadataService {
     }
 
     /**
-     * 并发处理多个表
+     * 并发处理多个表的元数据信息。
+     * <p>
+     * 该方法使用线程池来并发处理表的元数据信息，以提高处理效率。每个表的处理都在独立的线程中进行，
+     * 处理完成后的结果会被同步添加到结果列表中。
+     *
+     * @param jdbcTemplate JdbcTemplate实例，用于数据库操作
+     * @param dataSourceName 数据源名称
+     * @param metaData 数据库元数据对象
+     * @param tableTasks 需要处理的表任务列表
+     * @param whereConditionConfig 条件配置，用于过滤记录
+     * @param resumeStateManager 断点续跑状态管理器
+     * @param resultTables 存储处理结果的列表
      */
     private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData, List<TableTask> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
 
@@ -160,7 +218,22 @@ public class TableMetadataService {
     }
 
     /**
-     * 处理单个表，获取其字段信息、记录数和金额字段SUM值
+     * 处理单个表，获取其字段信息、记录数和金额字段SUM值。
+     * <p>
+     * 该方法会：
+     * <ul>
+     *   <li>创建表信息对象</li>
+     *   <li>识别并收集金额字段</li>
+     *   <li>统计记录数和金额字段的求和</li>
+     * </ul>
+     *
+     * @param jdbcTemplate JdbcTemplate实例，用于数据库操作
+     * @param tableName 表名
+     * @param dataSourceName 数据源名称
+     * @param metaData 数据库元数据对象
+     * @param whereConditionConfig 条件配置，用于过滤记录
+     * @return 表信息对象，如果处理失败则返回null
+     * @throws SQLException 如果数据库操作出错
      */
     private TableInfo processTable(JdbcTemplate jdbcTemplate, String tableName, String dataSourceName, DatabaseMetaData metaData, DbConfig whereConditionConfig) throws SQLException {
         TableInfo tableInfo = new TableInfo(tableName);
@@ -178,7 +251,19 @@ public class TableMetadataService {
     }
 
     /**
-     * 查找表中的金额字段
+     * 查找表中的金额字段。
+     * <p>
+     * 该方法通过分析表的列元数据来识别金额字段，判断标准为：
+     * <ul>
+     *   <li>字段类型为数值型（如NUMERIC, DECIMAL等）</li>
+     *   <li>字段的小数位数大于0</li>
+     * </ul>
+     * 识别到的金额字段会被添加到TableInfo对象中。
+     *
+     * @param tableName 表名
+     * @param metaData 数据库元数据对象
+     * @param tableInfo 表信息对象，用于存储识别到的金额字段
+     * @throws SQLException 如果获取列元数据时发生错误
      */
     private void findMoneyFields(String tableName, DatabaseMetaData metaData, TableInfo tableInfo) throws SQLException {
         try (ResultSet columns = metaData.getColumns(null, null, tableName, null)) {
@@ -201,9 +286,22 @@ public class TableMetadataService {
     }
 
     /**
-     * 获取表的记录数和金额字段SUM值
+     * 获取表的记录数和金额字段SUM值。
+     * <p>
+     * 该方法会：
+     * <ul>
+     *   <li>根据配置选择合适的数据源（主库/从库）</li>
+     *   <li>构建优化的SQL查询，同时获取有条件和无条件的统计数据</li>
+     *   <li>计算表的总记录数和满足条件的记录数</li>
+     *   <li>计算所有金额字段的求和（含条件和无条件）</li>
+     * </ul>
      *
-     * @return 是否成功获取
+     * @param jdbcTemplate JdbcTemplate实例，用于数据库操作
+     * @param tableName 表名
+     * @param dataSourceName 数据源名称
+     * @param tableInfo 表信息对象，用于存储统计结果
+     * @param whereConditionConfig 条件配置，用于过滤记录
+     * @return 是否成功获取统计数据
      */
     private boolean fetchRecordCountAndSums(JdbcTemplate jdbcTemplate, String tableName, String dataSourceName, TableInfo tableInfo, DbConfig whereConditionConfig) {
         try {
@@ -374,7 +472,20 @@ public class TableMetadataService {
     }
 
     /**
-     * 判断表是否应该被排除
+     * 判断表是否应该被排除。
+     * <p>
+     * 该方法根据配置的包含规则来判断表是否需要处理：
+     * <ul>
+     *   <li>如果指定了schema列表，检查表的schema是否在列表中</li>
+     *   <li>如果指定了表名列表，检查表名是否在列表中</li>
+     * </ul>
+     * 判断结果会被缓存以提高性能。
+     *
+     * @param tableName 表名
+     * @param tableSchema 表所属的schema
+     * @param includeSchemas 需要包含的schema列表，多个schema用逗号分隔
+     * @param includeTables 需要包含的表名列表，多个表名用逗号分隔
+     * @return 如果表应该被排除则返回true，否则返回false
      */
     private boolean shouldExcludeTable(String tableName, String tableSchema, String includeSchemas, String includeTables) {
         String cacheKey = tableSchema + ":" + tableName + ":" + includeSchemas + ":" + includeTables;
@@ -418,4 +529,4 @@ public class TableMetadataService {
     private boolean isNumericType(int sqlType) {
         return NUMERIC_TYPES.contains(sqlType);
     }
-} 
+}

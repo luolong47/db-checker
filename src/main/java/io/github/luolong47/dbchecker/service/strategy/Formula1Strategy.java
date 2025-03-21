@@ -24,7 +24,9 @@ public class Formula1Strategy implements FormulaStrategy {
     @Override
     public String calculateSum(MoneyFieldSumInfo info) {
         Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) return "N/A";
+        if (containsNull(values)) {
+            return "N/A";
+        }
 
         BigDecimal sum = values.get("rlcms_pv1")
             .add(values.get("rlcms_pv2"))
@@ -35,7 +37,9 @@ public class Formula1Strategy implements FormulaStrategy {
     @Override
     public String calculateCount(MoneyFieldSumInfo info) {
         Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) return "N/A";
+        if (containsNull(values)) {
+            return "N/A";
+        }
 
         long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
         return values.get("ora").equals(sum) ? "TRUE" : "FALSE";
@@ -44,7 +48,9 @@ public class Formula1Strategy implements FormulaStrategy {
     @Override
     public DiffInfo getDiffInfoForSum(MoneyFieldSumInfo info) {
         Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) return new DiffInfo("N/A", "");
+        if (containsNull(values)) {
+            return new DiffInfo("N/A", "");
+        }
 
         BigDecimal sum = values.get("rlcms_pv1")
             .add(values.get("rlcms_pv2"))
@@ -61,7 +67,9 @@ public class Formula1Strategy implements FormulaStrategy {
     @Override
     public DiffInfo getDiffInfoForCount(MoneyFieldSumInfo info) {
         Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) return new DiffInfo("N/A", "");
+        if (containsNull(values)) {
+            return new DiffInfo("N/A", "");
+        }
 
         long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
         long diff = values.get("ora") - sum;

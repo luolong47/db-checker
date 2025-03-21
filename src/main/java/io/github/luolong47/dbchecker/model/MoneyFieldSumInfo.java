@@ -83,6 +83,7 @@ public class MoneyFieldSumInfo {
         if (tableInfo != null) {
             // TableInfo没有schema字段，暂时留空
             this.schema = "";
+
             // 将数据源列表转换为字符串
             this.dataSources = String.join(", ", tableInfo.getDataSources());
             this.recordCounts = String.valueOf(tableInfo.getRecordCount());
@@ -97,7 +98,7 @@ public class MoneyFieldSumInfo {
             }
 
             // 如果是金额字段，则初始化SUM值
-            if (!moneyField.equals("_COUNT")) {
+            if (!"".equals(moneyField)) {
                 for (String ds : tableInfo.getDataSources()) {
                     // 获取该数据源下该字段的SUM值
                     Map<String, BigDecimal> fieldSums = tableInfo.getAllMoneySums().get(ds);
@@ -175,7 +176,8 @@ public class MoneyFieldSumInfo {
      */
     public BigDecimal getSumValueByDataSource(String dataSource) {
         if (isCountField) {
-            return null; // COUNT字段不返回SUM值
+            // COUNT字段不返回SUM值
+            return null;
         }
 
         // 只有当表所在数据源列表中包含该数据源时，才返回对应的SUM值
@@ -194,7 +196,8 @@ public class MoneyFieldSumInfo {
      */
     public Long getCountValueByDataSource(String dataSource) {
         if (!isCountField) {
-            return null; // 非COUNT字段不返回记录数
+            // 非COUNT字段不返回记录数
+            return null;
         }
 
         // 只有当表所在数据源列表中包含该数据源时，才返回对应的记录数
@@ -242,4 +245,4 @@ public class MoneyFieldSumInfo {
         // 对于不在表数据源列表中的数据源，返回null
         return null;
     }
-} 
+}
