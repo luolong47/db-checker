@@ -241,6 +241,10 @@ public class TableMetadataService {
      * @throws SQLException 如果数据库操作出错
      */
     private TableInfo processTable(JdbcTemplate jdbcTemplate, String tableName, String dataSourceName, DatabaseMetaData metaData, DbConfig whereConditionConfig) throws SQLException {
+        // 记录当前线程名称，帮助调试线程池使用情况
+        String threadName = Thread.currentThread().getName();
+        log.debug("线程[{}]开始处理表: {}.{}", threadName, dataSourceName, tableName);
+        
         TableInfo tableInfo = new TableInfo(tableName);
         tableInfo.setDataSourceName(dataSourceName);
 
@@ -252,6 +256,8 @@ public class TableMetadataService {
             return null;
         }
 
+        // 处理完成后记录
+        log.debug("线程[{}]完成处理表: {}.{}", threadName, dataSourceName, tableName);
         return tableInfo;
     }
 
