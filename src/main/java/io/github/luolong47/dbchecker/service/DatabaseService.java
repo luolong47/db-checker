@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.manager.ResumeStateManager;
 import io.github.luolong47.dbchecker.manager.TableInfoManager;
+import io.github.luolong47.dbchecker.manager.ThreadPoolManager;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import io.github.luolong47.dbchecker.model.TableInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -44,9 +44,9 @@ public class DatabaseService {
     private final ResumeStateManager resumeStateManager;
     private final FormulaCalculationService formulaCalculationService;
     private final TableMetadataService tableMetadataService;
+    private final ThreadPoolManager threadPoolManager;
 
-    // CSV导出线程池和任务队列
-    private ExecutorService csvExportExecutor;
+    // 任务队列和计数器
     private ConcurrentLinkedQueue<CompletableFuture<Void>> csvExportTasks;
     private AtomicInteger pendingExportTasks;
 
@@ -64,7 +64,8 @@ public class DatabaseService {
         TableInfoManager tableInfoManager,
         ResumeStateManager resumeStateManager,
         FormulaCalculationService formulaCalculationService,
-        TableMetadataService tableMetadataService) {
+        TableMetadataService tableMetadataService,
+        ThreadPoolManager threadPoolManager) {
         this.oraJdbcTemplate = oraJdbcTemplate;
         this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.rlcmsBaseJdbcTemplate = rlcmsBaseJdbcTemplate;
@@ -79,6 +80,7 @@ public class DatabaseService {
         this.resumeStateManager = resumeStateManager;
         this.formulaCalculationService = formulaCalculationService;
         this.tableMetadataService = tableMetadataService;
+        this.threadPoolManager = threadPoolManager;
     }
 
     /**
@@ -95,10 +97,11 @@ public class DatabaseService {
         // 根据运行模式初始化状态
         resumeStateManager.initResumeState(dbConfig.getRunMode());
 
-        // 初始化CSV导出相关资源
-        csvExportExecutor = Executors.newFixedThreadPool(2); // 使用2个线程处理CSV导出
+        // 初始化任务队列和计数器
         csvExportTasks = new ConcurrentLinkedQueue<>();
         pendingExportTasks = new AtomicInteger(0);
+
+        log.info("数据库服务初始化完成");
     }
 
     /**
@@ -166,9 +169,9 @@ public class DatabaseService {
 
         // 用于追踪已完成处理的表
         Set<String> processedTables = Collections.synchronizedSet(new HashSet<>());
-        
-        // 使用CompletableFuture并发获取表信息
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        // 使用数据库专用线程池并发获取表信息
+        List<CompletableFuture<Void>> dbFutures = new ArrayList<>();
 
         for (Map.Entry<String, JdbcTemplate> entry : databasesToProcess.entrySet()) {
             String dbName = entry.getKey();
@@ -181,13 +184,18 @@ public class DatabaseService {
                 continue;
             }
 
+            // 获取当前数据库的专用线程池
+            ExecutorService dbExecutor = threadPoolManager.getDbThreadPool(dbName);
+
+            // 在数据库专用线程池中执行表信息获取
             CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> {
+                log.info("使用[{}]线程池开始处理数据库[{}]", Thread.currentThread().getName(), dbName);
                 List<TableInfo> tables = tableMetadataService.getTablesInfoFromDataSource(
                     jdbcTemplate, dbName, dbConfig.getIncludeSchemas(), dbConfig.getIncludeTables(),
                     dbConfig, resumeStateManager, dbConfig.getRunMode());
                 log.info("从{}数据源获取到{}个表", dbName, tables.size());
                 return tables;
-            }).thenAccept(tables -> {
+            }, dbExecutor).thenAccept(tables -> {
                 try {
                     if (tables.isEmpty()) {
                         return;
@@ -211,11 +219,11 @@ public class DatabaseService {
                 }
             });
 
-            futures.add(future);
+            dbFutures.add(future);
         }
 
         // 等待所有表信息处理完成
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        CompletableFuture.allOf(dbFutures.toArray(new CompletableFuture[0])).join();
 
         log.info("表信息收集完成，共发现{}个表", tableInfoManager.getTableCount());
 
@@ -313,15 +321,35 @@ public class DatabaseService {
         }
 
         if (!remainingTables.isEmpty()) {
-            log.info("发现{}个表尚未导出，开始队列化批量导出", remainingTables.size());
+            log.info("发现{}个表尚未导出，开始分批队列化导出", remainingTables.size());
 
-            // 将剩余表加入到已处理集合
+            // 分批处理剩余表以减少内存压力
+            List<String> tableNames = new ArrayList<>(remainingTables.keySet());
+            int batchSize = 10;  // 每批处理10张表
+            int batches = (tableNames.size() + batchSize - 1) / batchSize;  // 向上取整
+
+            log.info("将{}个剩余表分为{}批处理", tableNames.size(), batches);
+
+            // 将所有表标记为已处理
             synchronized (processedTables) {
                 processedTables.addAll(remainingTables.keySet());
             }
 
-            // 提交异步批量导出任务
-            queueCsvExportTask(remainingTables, outputFile, "remaining-tables-batch");
+            // 按批次提交任务
+            for (int i = 0; i < batches; i++) {
+                int start = i * batchSize;
+                int end = Math.min(start + batchSize, tableNames.size());
+                Map<String, TableInfo> batchTables = new HashMap<>();
+
+                for (int j = start; j < end; j++) {
+                    String tableName = tableNames.get(j);
+                    batchTables.put(tableName, remainingTables.get(tableName));
+                }
+
+                // 提交批次任务
+                queueCsvExportTask(batchTables, outputFile, "batch-" + (i + 1));
+                log.debug("已提交第{}批剩余表导出任务，包含{}个表", i + 1, batchTables.size());
+            }
         }
     }
 
@@ -331,8 +359,12 @@ public class DatabaseService {
     private void queueCsvExportTask(Map<String, TableInfo> tables, File outputFile, String taskId) {
         pendingExportTasks.incrementAndGet();
 
+        // 获取CSV导出线程池
+        ExecutorService csvExportExecutor = threadPoolManager.getCsvExportExecutor();
+        
         CompletableFuture<Void> exportTask = CompletableFuture.supplyAsync(() -> {
             try {
+                log.debug("任务[{}]开始准备导出数据，包含{}个表", taskId, tables.size());
                 // 生成导出数据
                 return formulaCalculationService.prepareExportData(tables);
             } catch (Exception e) {
@@ -342,21 +374,26 @@ public class DatabaseService {
         }, csvExportExecutor).thenAcceptAsync(dataList -> {
             try {
                 if (!dataList.isEmpty()) {
+                    log.debug("任务[{}]准备写入{}行数据到CSV文件", taskId, dataList.size());
                     // 写入CSV文件 (使用同步块确保文件写入是线程安全的)
                     synchronized (outputFile) {
                         appendToCsv(outputFile, dataList);
                     }
                     log.info("任务[{}]数据已成功导出到CSV, 行数: {}", taskId, dataList.size());
+                } else {
+                    log.debug("任务[{}]没有数据需要导出", taskId);
                 }
             } catch (Exception e) {
                 log.error("写入CSV文件时出错[{}]: {}", taskId, e.getMessage(), e);
             } finally {
-                pendingExportTasks.decrementAndGet();
+                int remaining = pendingExportTasks.decrementAndGet();
+                log.debug("任务[{}]完成，剩余{}个导出任务", taskId, remaining);
             }
         }, csvExportExecutor);
 
         // 添加到任务队列
         csvExportTasks.add(exportTask);
+        log.debug("已将任务[{}]添加到导出队列，当前队列任务数: {}", taskId, pendingExportTasks.get());
     }
 
     /**

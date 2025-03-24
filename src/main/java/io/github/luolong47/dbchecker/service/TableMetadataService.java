@@ -4,6 +4,7 @@ import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.manager.ResumeStateManager;
+import io.github.luolong47.dbchecker.manager.ThreadPoolManager;
 import io.github.luolong47.dbchecker.model.TableInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,7 +17,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * 表元数据服务，负责从数据源获取表的元数据信息，包括表结构、记录数和金额字段的统计数据。
@@ -60,16 +60,24 @@ public class TableMetadataService {
     private final JdbcTemplate oraSlaveJdbcTemplate;
 
     /**
-     * 构造函数，初始化Oracle主从数据源
+     * 线程池管理器
+     */
+    private final ThreadPoolManager threadPoolManager;
+
+    /**
+     * 构造函数，初始化Oracle主从数据源和线程池管理器
      *
      * @param oraJdbcTemplate      Oracle主库数据源
      * @param oraSlaveJdbcTemplate Oracle从库数据源
+     * @param threadPoolManager    线程池管理器
      */
     public TableMetadataService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
-        @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate) {
+        @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate,
+        ThreadPoolManager threadPoolManager) {
         this.oraJdbcTemplate = oraJdbcTemplate;
         this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
+        this.threadPoolManager = threadPoolManager;
     }
 
     /**
@@ -165,8 +173,9 @@ public class TableMetadataService {
      */
     private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData, List<String> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
 
-        // 创建线程池，控制并发数量
-        ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_THREADS_PER_DB, tableTasks.size()));
+        // 获取数据库专用线程池
+        ExecutorService executor = threadPoolManager.getDbThreadPool(dataSourceName);
+        log.info("使用[{}]数据库的专用线程池处理{}个表", dataSourceName, tableTasks.size());
 
         // 创建CompletableFuture任务列表
         List<CompletableFuture<TableInfo>> futures = new ArrayList<>();
@@ -210,8 +219,7 @@ public class TableMetadataService {
             }
         }
 
-        // 关闭线程池
-        executor.shutdown();
+        // 不关闭线程池，现在由ThreadPoolManager管理
     }
 
     /**
