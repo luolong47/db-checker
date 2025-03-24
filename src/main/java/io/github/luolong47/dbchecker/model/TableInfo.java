@@ -5,6 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * 表信息类，用于存储数据库表的元数据信息和统计结果。
@@ -30,22 +33,22 @@ public class TableInfo {
     private final String tableName;
 
     /** 各数据源的记录数统计（满足条件的记录数），key为数据源名称 */
-    private final Map<String, Long> recordCounts = new HashMap<>();
+    private final Map<String, Long> recordCounts = new ConcurrentHashMap<>();
 
     /** 各数据源的总记录数统计（无条件），key为数据源名称 */
-    private final Map<String, Long> recordCountsAll = new HashMap<>();
+    private final Map<String, Long> recordCountsAll = new ConcurrentHashMap<>();
 
     /** 表中的金额字段集合 */
-    private final Set<String> moneyFields = new HashSet<>();
+    private final Set<String> moneyFields = new CopyOnWriteArraySet<>();
 
     /** 金额字段的求和结果（满足条件），第一层key为数据源名称，第二层key为字段名称 */
-    private final Map<String, Map<String, BigDecimal>> moneySums = new HashMap<>();
+    private final Map<String, Map<String, BigDecimal>> moneySums = new ConcurrentHashMap<>();
 
     /** 金额字段的总和结果（无条件），第一层key为数据源名称，第二层key为字段名称 */
-    private final Map<String, Map<String, BigDecimal>> moneySumsAll = new HashMap<>();
+    private final Map<String, Map<String, BigDecimal>> moneySumsAll = new ConcurrentHashMap<>();
 
     /** 关联的数据源列表 */
-    private final List<String> dataSources = new ArrayList<>();
+    private final List<String> dataSources = new CopyOnWriteArrayList<>();
 
     /** 当前使用的数据源名称 */
     private String dataSourceName;
@@ -128,7 +131,7 @@ public class TableInfo {
      * @param sum 求和结果
      */
     public void setMoneySum(String dataSource, String fieldName, BigDecimal sum) {
-        this.moneySums.computeIfAbsent(dataSource, k -> new HashMap<>()).put(fieldName, sum);
+        this.moneySums.computeIfAbsent(dataSource, k -> new ConcurrentHashMap<>()).put(fieldName, sum);
     }
 
     /**
@@ -139,7 +142,7 @@ public class TableInfo {
      * @param sum 总和结果
      */
     public void setMoneySumAll(String dataSource, String fieldName, BigDecimal sum) {
-        this.moneySumsAll.computeIfAbsent(dataSource, k -> new HashMap<>()).put(fieldName, sum);
+        this.moneySumsAll.computeIfAbsent(dataSource, k -> new ConcurrentHashMap<>()).put(fieldName, sum);
         log.debug("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值到moneySumsAll: {}", tableName, fieldName, dataSource, sum);
     }
 

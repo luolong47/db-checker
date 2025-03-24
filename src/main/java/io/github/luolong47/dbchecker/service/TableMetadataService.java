@@ -508,4 +508,86 @@ public class TableMetadataService {
     private boolean isNumericType(int sqlType) {
         return NUMERIC_TYPES.contains(sqlType);
     }
+
+    /**
+     * 检查指定表是否应该在特定数据库中处理
+     *
+     * @param dataSourceName 数据源名称
+     * @param tableName      表名
+     * @param dbConfig       数据库配置
+     * @return 如果该表应该在这个数据库中处理，则返回true
+     */
+    public boolean shouldProcessTable(String dataSourceName, String tableName, DbConfig dbConfig) {
+        // 检查表名是否符合配置的包含规则
+        if (dbConfig.getIncludeTables() != null && !dbConfig.getIncludeTables().isEmpty()) {
+            boolean matched = false;
+            for (String pattern : dbConfig.getIncludeTables().split(",")) {
+                if (pattern.trim().equalsIgnoreCase(tableName) ||
+                    (pattern.contains("*") && matches(tableName, pattern.trim()))) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+
+        // 获取表可能应该存在的数据源列表
+        Set<String> possibleDataSources = getPossibleDataSourcesForTable(tableName);
+
+        // 如果当前数据源在可能的数据源列表中，则表应该被处理
+        return possibleDataSources.contains(dataSourceName);
+    }
+
+    /**
+     * 获取表可能存在的数据源列表
+     *
+     * @param tableName 表名
+     * @return 可能包含该表的数据源集合
+     */
+    private Set<String> getPossibleDataSourcesForTable(String tableName) {
+        // 这里的逻辑基于表命名规则和业务逻辑来判断表应该出现在哪些数据库中
+        // 例如，所有表都应该出现在ora中，但只有特定表会出现在其他数据库
+        Set<String> dataSources = new HashSet<>();
+
+        // 默认所有表都应该在ora中
+        dataSources.add("ora");
+
+        // 基于表名前缀或特定规则添加其他可能的数据源
+        if (tableName.startsWith("RLCMS_")) {
+            dataSources.add("rlcms_base");
+            dataSources.add("rlcms_pv1");
+            dataSources.add("rlcms_pv2");
+            dataSources.add("rlcms_pv3");
+        } else if (tableName.startsWith("BS_")) {
+            dataSources.add("bscopy_pv1");
+            dataSources.add("bscopy_pv2");
+            dataSources.add("bscopy_pv3");
+        } else {
+            // 对于其他不确定的表，添加所有数据源以确保不漏处理
+            dataSources.add("rlcms_base");
+            dataSources.add("rlcms_pv1");
+            dataSources.add("rlcms_pv2");
+            dataSources.add("rlcms_pv3");
+            dataSources.add("bscopy_pv1");
+            dataSources.add("bscopy_pv2");
+            dataSources.add("bscopy_pv3");
+        }
+
+        return dataSources;
+    }
+
+    /**
+     * 检查字符串是否匹配通配符模式
+     *
+     * @param str     要检查的字符串
+     * @param pattern 通配符模式，可以包含*
+     * @return 是否匹配
+     */
+    private boolean matches(String str, String pattern) {
+        // 将通配符模式转换为正则表达式
+        String regex = pattern.replace(".", "\\.").replace("*", ".*");
+        return str.matches(regex);
+    }
 }

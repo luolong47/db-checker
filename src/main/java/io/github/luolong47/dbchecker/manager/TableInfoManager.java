@@ -7,9 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 表信息管理器
@@ -19,8 +19,8 @@ import java.util.Map;
 @Data
 public class TableInfoManager {
 
-    // 存储所有表的元数据信息
-    private final Map<String, TableInfo> tableInfoMap = new HashMap<>();
+    // 存储所有表的元数据信息，使用线程安全的ConcurrentHashMap
+    private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
 
     /**
      * a获取表数量
@@ -46,12 +46,18 @@ public class TableInfoManager {
     /**
      * 将表信息列表添加到映射中，使用表名作为唯一标识
      */
-    public void addTableInfoList(List<TableInfo> tables, String sourceName) {
+    public synchronized void addTableInfoList(List<TableInfo> tables, String sourceName) {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
 
-        tables.forEach(table -> {
+        for (TableInfo table : tables) {
             String key = table.getTableName();
-            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, TableInfo::new);
+
+            // 使用线程安全的方式获取或创建TableInfo对象
+            TableInfo metaInfo = tableInfoMap.get(key);
+            if (metaInfo == null) {
+                metaInfo = new TableInfo(key);
+                tableInfoMap.put(key, metaInfo);
+            }
 
             // 添加数据源和记录数
             metaInfo.addDataSource(sourceName);
@@ -63,7 +69,9 @@ public class TableInfoManager {
             if (metaInfo.getMoneyFields().isEmpty() && !table.getMoneyFields().isEmpty()) {
                 try {
                     // 使用Stream API复制金额字段
-                    table.getMoneyFields().forEach(metaInfo::addMoneyField);
+                    for (String moneyField : table.getMoneyFields()) {
+                        metaInfo.addMoneyField(moneyField);
+                    }
 
                     if (!table.getMoneyFields().isEmpty()) {
                         log.debug("表 {} 发现{}个金额字段: {}",
@@ -78,12 +86,14 @@ public class TableInfoManager {
 
             // 添加求和结果
             if (!table.getMoneySums().isEmpty()) {
-                // 使用Stream API添加金额字段的SUM值
-                table.getMoneySums().forEach((fieldName, sumValue) -> {
+                // 使用循环添加金额字段的SUM值
+                for (Map.Entry<String, BigDecimal> entry : table.getMoneySums().entrySet()) {
+                    String fieldName = entry.getKey();
+                    BigDecimal sumValue = entry.getValue();
                     metaInfo.setMoneySum(sourceName, fieldName, sumValue);
                     log.debug("表 {} 字段 {} 在数据源 {} 的SUM值为: {}",
                         table.getTableName(), fieldName, sourceName, sumValue);
-                });
+                }
             }
 
             // 添加无条件求和结果
@@ -91,14 +101,16 @@ public class TableInfoManager {
             if (allMoneySumsAll != null && !allMoneySumsAll.isEmpty()) {
                 Map<String, BigDecimal> fieldSumsAll = allMoneySumsAll.get(sourceName);
                 if (fieldSumsAll != null && !fieldSumsAll.isEmpty()) {
-                    fieldSumsAll.forEach((fieldName, sumValueAll) -> {
+                    for (Map.Entry<String, BigDecimal> entry : fieldSumsAll.entrySet()) {
+                        String fieldName = entry.getKey();
+                        BigDecimal sumValueAll = entry.getValue();
                         metaInfo.setMoneySumAll(sourceName, fieldName, sumValueAll);
                         log.debug("复制表[{}]字段[{}]在数据源[{}]中的无条件SUM值: {}",
                             table.getTableName(), fieldName, sourceName, sumValueAll);
-                    });
+                    }
                 }
             }
-        });
+        }
 
         log.info("{}的表信息处理完成", sourceName);
     }
