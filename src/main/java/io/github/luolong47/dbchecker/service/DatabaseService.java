@@ -18,6 +18,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 数据库服务类，用于测试多数据源
@@ -40,6 +44,11 @@ public class DatabaseService {
     private final ResumeStateManager resumeStateManager;
     private final FormulaCalculationService formulaCalculationService;
     private final TableMetadataService tableMetadataService;
+
+    // CSV导出线程池和任务队列
+    private ExecutorService csvExportExecutor;
+    private ConcurrentLinkedQueue<CompletableFuture<Void>> csvExportTasks;
+    private AtomicInteger pendingExportTasks;
 
     public DatabaseService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
@@ -85,6 +94,11 @@ public class DatabaseService {
 
         // 根据运行模式初始化状态
         resumeStateManager.initResumeState(dbConfig.getRunMode());
+
+        // 初始化CSV导出相关资源
+        csvExportExecutor = Executors.newFixedThreadPool(2); // 使用2个线程处理CSV导出
+        csvExportTasks = new ConcurrentLinkedQueue<>();
+        pendingExportTasks = new AtomicInteger(0);
     }
 
     /**
@@ -115,6 +129,10 @@ public class DatabaseService {
         if (!cn.hutool.core.util.StrUtil.isEmpty(dbConfig.getRerunDatabases())) {
             log.info("指定重跑数据库: {}", dbConfig.getRerunDatabases());
         }
+
+        // 重置CSV导出任务状态
+        csvExportTasks.clear();
+        pendingExportTasks.set(0);
 
         // 检查现有状态
         boolean hasRestoredTableInfo = tableInfoManager.hasTableInfo();
@@ -181,11 +199,9 @@ public class DatabaseService {
                     // 添加表信息到映射
                     tableInfoManager.addTableInfoList(tables, dataSourceName);
 
-                    // 对于每张表，检查是否已收集完所有数据源的数据，并尝试导出
+                    // 对于每张表，检查是否已收集完所有数据源的数据，并尝试导出(异步)
                     for (TableInfo table : tables) {
-                        synchronized (processedTables) {
-                            checkAndExportTable(table.getTableName(), processedTables, outputFile);
-                        }
+                        checkAndQueueExportTable(table.getTableName(), processedTables, outputFile);
                     }
 
                     // 及时保存状态
@@ -198,28 +214,42 @@ public class DatabaseService {
             futures.add(future);
         }
 
-        // 等待所有处理完成
+        // 等待所有表信息处理完成
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         log.info("表信息收集完成，共发现{}个表", tableInfoManager.getTableCount());
 
-        // 导出所有尚未导出的表
-        processRemainingTables(processedTables, outputFile);
+        // 异步处理所有尚未导出的表
+        queueRemainingTables(processedTables, outputFile);
+
+        // 等待所有CSV导出任务完成
+        log.info("正在等待所有CSV导出任务完成，剩余{}个任务...", pendingExportTasks.get());
+        waitForCsvExportTasks();
 
         // 在最后，确保所有处理都被标记为已完成
         resumeStateManager.saveResumeState(tableInfoManager.getTableInfoMap());
     }
 
     /**
-     * 检查并导出单个表
+     * 等待所有CSV导出任务完成
      */
-    private void checkAndExportTable(String tableName, Set<String> processedTables, File outputFile) throws IOException {
-        // 如果表已经处理过，跳过
+    private void waitForCsvExportTasks() {
+        CompletableFuture[] tasks = csvExportTasks.toArray(new CompletableFuture[0]);
+        if (tasks.length > 0) {
+            CompletableFuture.allOf(tasks).join();
+        }
+    }
+
+    /**
+     * 检查并队列化导出单个表（异步方式）
+     */
+    private void checkAndQueueExportTable(String tableName, Set<String> processedTables, File outputFile) {
+        // 快速检查表是否已处理，避免获取锁
         if (processedTables.contains(tableName)) {
             return;
         }
 
-        // 获取表信息
+        // 获取表信息 - ConcurrentHashMap读取无需同步
         TableInfo tableInfo = tableInfoManager.getTableInfoMap().get(tableName);
         if (tableInfo == null) {
             return;
@@ -236,58 +266,97 @@ public class DatabaseService {
         // 检查该表是否已在所有必需的数据源中收集了数据
         Set<String> collectedDataSources = new HashSet<>(tableInfo.getDataSources());
 
-        // 如果所有必需的数据源都已收集，则导出
+        // 如果所有必需的数据源都已收集，则尝试导出
         if (collectedDataSources.containsAll(requiredDataSources)) {
-            log.info("表[{}]已收集完所有必需的数据源数据，准备导出", tableName);
+            // 使用原子操作检查并添加到处理集合
+            synchronized (processedTables) {
+                // 再次检查，确保没有其他线程已经处理了这个表
+                if (processedTables.contains(tableName)) {
+                    return;
+                }
+
+                // 标记为已处理 - 提前标记，避免其他线程重复处理
+                processedTables.add(tableName);
+            }
+
+            log.info("表[{}]已收集完所有必需的数据源数据，准备队列化导出", tableName);
 
             // 创建只包含此表的Map
             Map<String, TableInfo> singleTableMap = new HashMap<>();
             singleTableMap.put(tableName, tableInfo);
 
-            // 生成导出数据并追加到CSV文件
-            List<MoneyFieldSumInfo> dataList = formulaCalculationService.prepareExportData(singleTableMap);
-
-            // 使用同步块确保CSV文件写入是线程安全的
-            synchronized (outputFile) {
-                appendToCsv(outputFile, dataList);
-            }
-
-            // 标记为已处理
-            processedTables.add(tableName);
-
-            log.info("表[{}]数据已成功导出到CSV", tableName);
+            // 提交异步导出任务而不是直接导出
+            queueCsvExportTask(singleTableMap, outputFile, tableName);
         }
     }
 
     /**
-     * 处理所有剩余尚未导出的表
+     * 队列化所有剩余尚未导出的表（异步处理）
      */
-    private void processRemainingTables(Set<String> processedTables, File outputFile) throws IOException {
+    private void queueRemainingTables(Set<String> processedTables, File outputFile) {
         Map<String, TableInfo> tableInfoMap = tableInfoManager.getTableInfoMap();
 
-        // 筛选出尚未处理的表
+        // 筛选出尚未处理的表 - 避免多次加锁，一次性获取所有未处理表
         Map<String, TableInfo> remainingTables = new HashMap<>();
+        Set<String> processedTablesCopy;
+        
         synchronized (processedTables) {
-            for (Map.Entry<String, TableInfo> entry : tableInfoMap.entrySet()) {
-                if (!processedTables.contains(entry.getKey())) {
-                    remainingTables.put(entry.getKey(), entry.getValue());
-                }
+            // 创建已处理表的副本，避免在迭代过程中频繁获取锁
+            processedTablesCopy = new HashSet<>(processedTables);
+        }
+
+        // 使用副本进行筛选，无需持有锁
+        for (Map.Entry<String, TableInfo> entry : tableInfoMap.entrySet()) {
+            if (!processedTablesCopy.contains(entry.getKey())) {
+                remainingTables.put(entry.getKey(), entry.getValue());
             }
         }
 
         if (!remainingTables.isEmpty()) {
-            log.info("发现{}个表尚未导出，开始批量导出", remainingTables.size());
+            log.info("发现{}个表尚未导出，开始队列化批量导出", remainingTables.size());
 
-            // 导出剩余表
-            List<MoneyFieldSumInfo> dataList = formulaCalculationService.prepareExportData(remainingTables);
-
-            // 使用同步块确保CSV文件写入是线程安全的
-            synchronized (outputFile) {
-                appendToCsv(outputFile, dataList);
+            // 将剩余表加入到已处理集合
+            synchronized (processedTables) {
+                processedTables.addAll(remainingTables.keySet());
             }
 
-            log.info("已完成{}个剩余表的数据导出", remainingTables.size());
+            // 提交异步批量导出任务
+            queueCsvExportTask(remainingTables, outputFile, "remaining-tables-batch");
         }
+    }
+
+    /**
+     * 将CSV导出任务添加到队列
+     */
+    private void queueCsvExportTask(Map<String, TableInfo> tables, File outputFile, String taskId) {
+        pendingExportTasks.incrementAndGet();
+
+        CompletableFuture<Void> exportTask = CompletableFuture.supplyAsync(() -> {
+            try {
+                // 生成导出数据
+                return formulaCalculationService.prepareExportData(tables);
+            } catch (Exception e) {
+                log.error("准备导出数据时出错[{}]: {}", taskId, e.getMessage(), e);
+                return new ArrayList<MoneyFieldSumInfo>();
+            }
+        }, csvExportExecutor).thenAcceptAsync(dataList -> {
+            try {
+                if (!dataList.isEmpty()) {
+                    // 写入CSV文件 (使用同步块确保文件写入是线程安全的)
+                    synchronized (outputFile) {
+                        appendToCsv(outputFile, dataList);
+                    }
+                    log.info("任务[{}]数据已成功导出到CSV, 行数: {}", taskId, dataList.size());
+                }
+            } catch (Exception e) {
+                log.error("写入CSV文件时出错[{}]: {}", taskId, e.getMessage(), e);
+            } finally {
+                pendingExportTasks.decrementAndGet();
+            }
+        }, csvExportExecutor);
+
+        // 添加到任务队列
+        csvExportTasks.add(exportTask);
     }
 
     /**
@@ -319,16 +388,16 @@ public class DatabaseService {
         log.info("开始追加数据到CSV文件: {}", outputFile.getAbsolutePath());
 
         // 准备CSV数据（不包括表头）
-        List<List<String>> rows = new ArrayList<>();
+        List<String> rows = new ArrayList<>(dataList.size() * 2); // 预分配更大空间，避免频繁扩容
 
-        // 使用Stream API处理每个数据项并生成结果行
+        // 处理每个数据项并生成结果行
         dataList.forEach(info -> {
             // 获取各数据源的值
             String[] dataSources = {"ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3",
                 "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"};
 
             // 创建基础值列表
-            List<String> baseValues = new ArrayList<>();
+            List<String> baseValues = new ArrayList<>(15); // 预估大小
             baseValues.add(escapeCsvValue(info.getTableName()));
             baseValues.add(escapeCsvValue(info.getDataSources()));
             baseValues.add(escapeCsvValue(info.getMoneyFields()));
@@ -348,18 +417,22 @@ public class DatabaseService {
 
             // 计算公式结果并添加到行
             List<List<String>> formulaRows = formulaCalculationService.calculateFormulaResults(info, baseValues);
-            rows.addAll(formulaRows);
+            for (List<String> row : formulaRows) {
+                rows.add(String.join(",", row));
+            }
         });
 
-        // 将数据追加到文件
+        // 将数据追加到文件，使用更大的缓冲区提高性能
         try (FileOutputStream fos = new FileOutputStream(outputFile, true);  // 注意这里设置为append模式
              OutputStreamWriter osw = new OutputStreamWriter(fos, "GBK");
-             BufferedWriter writer = new BufferedWriter(osw)) {
+             BufferedWriter writer = new BufferedWriter(osw, 8192)) { // 使用8KB缓冲区
 
-            for (List<String> row : rows) {
-                writer.write(String.join(",", row));
+            for (String row : rows) {
+                writer.write(row);
                 writer.newLine();
             }
+            // 确保所有数据都写入文件
+            writer.flush();
         }
 
         log.info("已将{}条记录追加到CSV文件", rows.size());

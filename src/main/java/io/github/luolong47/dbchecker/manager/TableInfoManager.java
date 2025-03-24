@@ -46,29 +46,24 @@ public class TableInfoManager {
     /**
      * 将表信息列表添加到映射中，使用表名作为唯一标识
      */
-    public synchronized void addTableInfoList(List<TableInfo> tables, String sourceName) {
+    public void addTableInfoList(List<TableInfo> tables, String sourceName) {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
 
         for (TableInfo table : tables) {
             String key = table.getTableName();
 
-            // 使用线程安全的方式获取或创建TableInfo对象
-            TableInfo metaInfo = tableInfoMap.get(key);
-            if (metaInfo == null) {
-                metaInfo = new TableInfo(key);
-                tableInfoMap.put(key, metaInfo);
-            }
+            // 使用ConcurrentHashMap的computeIfAbsent保证线程安全地获取或创建TableInfo对象
+            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableInfo(k));
 
-            // 添加数据源和记录数
+            // 添加数据源和记录数 - 这些操作在TableInfo内部使用ConcurrentHashMap，已线程安全
             metaInfo.addDataSource(sourceName);
             metaInfo.setRecordCount(sourceName, table.getRecordCount());
-            // 添加无条件记录数
             metaInfo.setRecordCountAll(sourceName, table.getRecordCountAll(sourceName));
 
-            // 添加金额字段（从TableInfo直接获取）
+            // 添加金额字段
             if (metaInfo.getMoneyFields().isEmpty() && !table.getMoneyFields().isEmpty()) {
                 try {
-                    // 使用Stream API复制金额字段
+                    // 使用非阻塞操作添加金额字段
                     for (String moneyField : table.getMoneyFields()) {
                         metaInfo.addMoneyField(moneyField);
                     }
@@ -86,7 +81,7 @@ public class TableInfoManager {
 
             // 添加求和结果
             if (!table.getMoneySums().isEmpty()) {
-                // 使用循环添加金额字段的SUM值
+                // 使用TableInfo内部的线程安全方法添加金额字段的SUM值
                 for (Map.Entry<String, BigDecimal> entry : table.getMoneySums().entrySet()) {
                     String fieldName = entry.getKey();
                     BigDecimal sumValue = entry.getValue();

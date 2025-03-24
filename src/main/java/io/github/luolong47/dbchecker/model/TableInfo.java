@@ -6,8 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * 表信息类，用于存储数据库表的元数据信息和统计结果。
@@ -38,8 +36,10 @@ public class TableInfo {
     /** 各数据源的总记录数统计（无条件），key为数据源名称 */
     private final Map<String, Long> recordCountsAll = new ConcurrentHashMap<>();
 
-    /** 表中的金额字段集合 */
-    private final Set<String> moneyFields = new CopyOnWriteArraySet<>();
+    /**
+     * 表中的金额字段集合 - 使用ConcurrentHashMap.newKeySet()替代CopyOnWriteArraySet，写性能更好
+     */
+    private final Set<String> moneyFields = ConcurrentHashMap.newKeySet();
 
     /** 金额字段的求和结果（满足条件），第一层key为数据源名称，第二层key为字段名称 */
     private final Map<String, Map<String, BigDecimal>> moneySums = new ConcurrentHashMap<>();
@@ -47,8 +47,10 @@ public class TableInfo {
     /** 金额字段的总和结果（无条件），第一层key为数据源名称，第二层key为字段名称 */
     private final Map<String, Map<String, BigDecimal>> moneySumsAll = new ConcurrentHashMap<>();
 
-    /** 关联的数据源列表 */
-    private final List<String> dataSources = new CopyOnWriteArrayList<>();
+    /**
+     * 关联的数据源列表 - 使用ConcurrentHashMap.newKeySet()存储，确保不重复并提高写性能
+     */
+    private final Set<String> dataSources = ConcurrentHashMap.newKeySet();
 
     /** 当前使用的数据源名称 */
     private String dataSourceName;
@@ -68,9 +70,7 @@ public class TableInfo {
      * @param dataSource 数据源名称
      */
     public void addDataSource(String dataSource) {
-        if (!this.dataSources.contains(dataSource)) {
-            this.dataSources.add(dataSource);
-        }
+        this.dataSources.add(dataSource);
     }
 
     /**
@@ -174,5 +174,14 @@ public class TableInfo {
     public Map<String, Map<String, BigDecimal>> getAllMoneySumsAll() {
         log.debug("获取表[{}]的所有无条件SUM值: {}", tableName, moneySumsAll);
         return moneySumsAll;
+    }
+
+    /**
+     * 获取所有数据源列表
+     *
+     * @return 数据源列表
+     */
+    public List<String> getDataSources() {
+        return new ArrayList<>(dataSources);
     }
 }
