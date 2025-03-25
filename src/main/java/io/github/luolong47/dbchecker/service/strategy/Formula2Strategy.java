@@ -1,53 +1,35 @@
 package io.github.luolong47.dbchecker.service.strategy;
 
 import io.github.luolong47.dbchecker.model.DiffInfo;
-import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
-import lombok.RequiredArgsConstructor;
 
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 公式2策略：ora = rlcms_base
  */
-@RequiredArgsConstructor
-public class Formula2Strategy implements FormulaStrategy {
-    private final String desc = "公式2(仅基础): ora = rlcms_base";
-    private final ValueCollector valueCollector;
+public class Formula2Strategy extends AbstractFormulaStrategy {
+    public Formula2Strategy(ValueCollector valueCollector) {
+        super(valueCollector);
+    }
 
     @Override
     public String getDesc() {
-        return desc;
+        return "公式2(仅基础): ora = rlcms_base";
     }
 
     @Override
-    public String calculateSum(MoneyFieldSumInfo info) {
-        Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) {
-            return "N/A";
-        }
-
-        return valueCollector.isApproximatelyEqual(values.get("ora"), values.get("rlcms_base")) ? "TRUE" : "FALSE";
+    protected boolean compareMoneyValues(Map<String, BigDecimal> values) {
+        return valueCollector.isApproximatelyEqual(values.get("ora"), values.get("rlcms_base"));
     }
 
     @Override
-    public String calculateCount(MoneyFieldSumInfo info) {
-        Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) {
-            return "N/A";
-        }
-
-        return values.get("ora").equals(values.get("rlcms_base")) ? "TRUE" : "FALSE";
+    protected boolean compareCountValues(Map<String, Long> values) {
+        return values.get("ora").equals(values.get("rlcms_base"));
     }
 
     @Override
-    public DiffInfo getDiffInfoForSum(MoneyFieldSumInfo info) {
-        Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) {
-            return new DiffInfo("N/A", "");
-        }
-
+    protected DiffInfo getMoneyDiffInfo(Map<String, BigDecimal> values) {
         BigDecimal diff = values.get("ora").subtract(values.get("rlcms_base"));
         return new DiffInfo(
             String.format("ORA(%s) - RLCMS_BASE(%s)",
@@ -57,12 +39,7 @@ public class Formula2Strategy implements FormulaStrategy {
     }
 
     @Override
-    public DiffInfo getDiffInfoForCount(MoneyFieldSumInfo info) {
-        Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) {
-            return new DiffInfo("N/A", "");
-        }
-
+    protected DiffInfo getCountDiffInfo(Map<String, Long> values) {
         long diff = values.get("ora") - values.get("rlcms_base");
         return new DiffInfo(
             String.format("ORA(%d) - RLCMS_BASE(%d)",
@@ -71,10 +48,4 @@ public class Formula2Strategy implements FormulaStrategy {
         );
     }
 
-    /**
-     * 检查Map中是否包含null值
-     */
-    private <T> boolean containsNull(Map<String, T> map) {
-        return map.values().stream().anyMatch(Objects::isNull);
-    }
-} 
+}

@@ -16,6 +16,7 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -38,11 +39,6 @@ import java.util.concurrent.ExecutorService;
 public class TableMetadataService {
 
     /**
-     * 每个数据库最大并发线程数，用于控制单个数据库内的表查询并发度
-     */
-    private static final int MAX_THREADS_PER_DB = 10;
-
-    /**
      * 支持的数值类型集合，用于识别金额字段
      */
     private static final Set<Integer> NUMERIC_TYPES = new HashSet<>(Arrays.asList(
@@ -52,9 +48,6 @@ public class TableMetadataService {
 
     /** 缓存schema和table的包含关系，避免重复判断 */
     private final Map<String, Boolean> schemaTableCache = new ConcurrentHashMap<>();
-
-    /** Oracle主库数据源 */
-    private final JdbcTemplate oraJdbcTemplate;
 
     /** Oracle从库数据源 */
     private final JdbcTemplate oraSlaveJdbcTemplate;
@@ -75,7 +68,7 @@ public class TableMetadataService {
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
         @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate,
         ThreadPoolManager threadPoolManager) {
-        this.oraJdbcTemplate = oraJdbcTemplate;
+        /* Oracle主库数据源 */
         this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.threadPoolManager = threadPoolManager;
     }
@@ -171,31 +164,33 @@ public class TableMetadataService {
      * @param resumeStateManager 断点续跑状态管理器
      * @param resultTables 存储处理结果的列表
      */
-    private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData, List<String> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
+    private void processTablesInParallel(JdbcTemplate jdbcTemplate, String dataSourceName, DatabaseMetaData metaData,
+                                         List<String> tableTasks, DbConfig whereConditionConfig, ResumeStateManager resumeStateManager, List<TableInfo> resultTables) {
 
         // 获取数据库专用线程池
         ExecutorService executor = threadPoolManager.getDbThreadPool(dataSourceName);
-        log.info("使用[{}]数据库的专用线程池处理{}个表", dataSourceName, tableTasks.size());
+        log.info("[线程池] 使用[{}]数据库的专用线程池处理{}个表", dataSourceName, tableTasks.size());
+
+        // 创建线程安全的结果收集队列
+        Queue<TableInfo> resultQueue = new ConcurrentLinkedQueue<>();
 
         // 创建CompletableFuture任务列表
-        List<CompletableFuture<TableInfo>> futures = new ArrayList<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (String task : tableTasks) {
-            CompletableFuture<TableInfo> future = CompletableFuture.supplyAsync(() -> {
+            CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    log.debug("开始处理表: {}", task);
+                    log.debug("[任务开始] 表[{}]开始处理", task);
                     TableInfo tableInfo = processTable(jdbcTemplate, task, dataSourceName, metaData, whereConditionConfig);
 
                     if (tableInfo != null) {
-                        // 使用synchronized确保线程安全
                         synchronized (resumeStateManager) {
-                            // 标记该表为已处理
                             resumeStateManager.markTableProcessed(task, dataSourceName);
                         }
-                        return tableInfo;
+                        resultQueue.offer(tableInfo);
                     }
                 } catch (Exception e) {
-                    log.error("处理表[{}]时出错: {}", task, e.getMessage(), e);
+                    log.error("[任务异常] 表[{}]处理出错: {}", task, e.getMessage());
                 }
                 return null;
             }, executor);
@@ -203,21 +198,11 @@ public class TableMetadataService {
             futures.add(future);
         }
 
-        // 等待所有任务完成并收集结果
+        // 等待所有任务完成
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
-        for (CompletableFuture<TableInfo> future : futures) {
-            try {
-                TableInfo tableInfo = future.get();
-                if (tableInfo != null) {
-                    synchronized (resultTables) {
-                        resultTables.add(tableInfo);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("获取表处理结果时出错: {}", e.getMessage(), e);
-            }
-        }
+        // 将收集到的结果添加到结果列表中
+        resultTables.addAll(resultQueue);
 
         // 不关闭线程池，现在由ThreadPoolManager管理
     }
@@ -286,13 +271,16 @@ public class TableMetadataService {
                 // 判断是否为金额字段：数值型且小数位不为0
                 if (isNumericType(dataType) && decimalDigits > 0) {
                     tableInfo.addMoneyField(columnName);
-                    log.debug("发现金额字段: {}.{}, 类型: {}, 小数位: {}", tableName, columnName, dataType, decimalDigits);
+                    log.debug("[字段识别] 表[{}]发现金额字段[{}], 类型: {}, 小数位: {}",
+                        tableName, columnName, dataType, decimalDigits);
                 }
             }
         }
 
         if (!tableInfo.getMoneyFields().isEmpty()) {
-            log.debug("表[{}]中发现{}个金额字段: {}", tableName, tableInfo.getMoneyFields().size(), StrUtil.join(", ", tableInfo.getMoneyFields()));
+            log.debug("[字段汇总] 表[{}]共发现{}个金额字段: {}",
+                tableName, tableInfo.getMoneyFields().size(),
+                StrUtil.join(", ", tableInfo.getMoneyFields()));
         }
     }
 
@@ -325,7 +313,6 @@ public class TableMetadataService {
                 templateToUse = oraSlaveJdbcTemplate;
             }
 
-            // 使用不同的dataSourceName来构建日志信息，但不修改TableInfo中的dataSourceName
             String logDataSourceName = dataSourceName;
             if (!dataSourceToUse.equals(dataSourceName)) {
                 logDataSourceName = dataSourceToUse + "(替代" + dataSourceName + ")";
@@ -388,14 +375,14 @@ public class TableMetadataService {
                         try {
                             recordCountAll = Integer.parseInt(recordCountAllObj.toString());
                         } catch (NumberFormatException e) {
-                            log.error("无法将 {} 转换为整数: {}", recordCountAllObj, e.getMessage());
+                            log.error("[总记录数解析] 表[{}]无法将值[{}]转换为整数: {}", tableName, recordCountAllObj, e.getMessage());
                         }
                     }
                 }
 
                 // 设置无WHERE条件的记录数
                 tableInfo.setRecordCountAll(dataSourceName, recordCountAll);
-                log.debug("表[{}]在数据源[{}]中的无条件记录数: {}", tableName, logDataSourceName, recordCountAll);
+                log.debug("[记录统计] 表[{}]在数据源[{}]的无条件记录数: {}", tableName, logDataSourceName, recordCountAll);
 
                 // 提取有条件记录数
                 Object recordCountObj = resultMap.get("_record_count");
@@ -408,14 +395,14 @@ public class TableMetadataService {
                         try {
                             recordCount = Integer.parseInt(recordCountObj.toString());
                         } catch (NumberFormatException e) {
-                            log.error("无法将 {} 转换为整数: {}", recordCountObj, e.getMessage());
+                            log.error("[条件记录数解析] 表[{}]无法将值[{}]转换为整数: {}", tableName, recordCountObj, e.getMessage());
                         }
                     }
                 }
 
                 // 设置有WHERE条件的记录数
                 tableInfo.setRecordCount(dataSourceName, recordCount);
-                log.debug("表[{}]在数据源[{}]中的记录数: {}", tableName, logDataSourceName, recordCount);
+                log.debug("[记录统计] 表[{}]在数据源[{}]的条件记录数: {}", tableName, logDataSourceName, recordCount);
 
                 // 处理金额字段SUM结果
                 if (recordCountAll > 0 && !moneyFields.isEmpty()) {
@@ -434,7 +421,8 @@ public class TableMetadataService {
                                     sumValue = new BigDecimal(value.toString());
                                 }
                             } catch (NumberFormatException e) {
-                                log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
+                                log.error("[金额字段解析] 表[{}]字段[{}]无法将值[{}]转换为BigDecimal: {}",
+                                    tableName, fieldName, value, e.getMessage());
                             }
                         }
                         tableInfo.setMoneySum(dataSourceName, fieldName, sumValue);
@@ -453,24 +441,27 @@ public class TableMetadataService {
                                     sumValueAll = new BigDecimal(value.toString());
                                 }
                             } catch (NumberFormatException e) {
-                                log.error("无法将 {} 转换为 BigDecimal: {}", value, e.getMessage());
+                                log.error("[金额字段解析] 表[{}]字段[{}]_ALL无法将值[{}]转换为BigDecimal: {}",
+                                    tableName, fieldName, value, e.getMessage());
                             }
                         }
                         tableInfo.setMoneySumAll(dataSourceName, fieldName, sumValueAll);
-                        log.debug("设置表[{}]字段[{}]在数据源[{}]中的无条件SUM值为: {}", tableName, fieldName, dataSourceName, sumValueAll);
-                        log.debug("表 {} 字段 {} 的SUM值为: {}", tableName, fieldName, sumValue);
+                        log.debug("[金额统计] 表[{}]字段[{}]在数据源[{}]的无条件SUM值: {}",
+                            tableName, fieldName, dataSourceName, sumValueAll);
+                        log.debug("[金额统计] 表[{}]字段[{}]在数据源[{}]的条件SUM值: {}",
+                            tableName, fieldName, dataSourceName, sumValue);
                     }
 
-                    log.debug("当前表[{}]的moneySumsAll内容: {}", tableName, tableInfo.getAllMoneySumsAll());
+                    log.debug("[金额汇总] 表[{}]的所有无条件SUM值: {}", tableName, tableInfo.getAllMoneySumsAll());
                 }
 
                 return true;
             } catch (Exception e) {
-                log.error("执行优化的COUNT和SUM查询出错[{}]：{}", tableName, e.getMessage());
+                log.error("[SQL执行] 表[{}]执行COUNT和SUM查询出错：{}", tableName, e.getMessage());
                 return false;
             }
         } catch (Exception e) {
-            log.error("处理表 {} 的记录数和金额字段SUM时出错: {}", tableName, e.getMessage(), e);
+            log.error("[处理失败] 表[{}]处理记录数和金额字段SUM时出错: {}", tableName, e.getMessage());
             return false;
         }
     }

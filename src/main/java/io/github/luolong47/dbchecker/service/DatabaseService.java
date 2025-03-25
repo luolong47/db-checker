@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,7 +32,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DatabaseService {
 
     private final JdbcTemplate oraJdbcTemplate;
-    private final JdbcTemplate oraSlaveJdbcTemplate;
     private final JdbcTemplate rlcmsBaseJdbcTemplate;
     private final JdbcTemplate rlcmsPv1JdbcTemplate;
     private final JdbcTemplate rlcmsPv2JdbcTemplate;
@@ -49,6 +49,8 @@ public class DatabaseService {
     // 任务队列和计数器
     private ConcurrentLinkedQueue<CompletableFuture<Void>> csvExportTasks;
     private AtomicInteger pendingExportTasks;
+    // 已处理的表集合
+    private final Set<String> processedTables = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public DatabaseService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
@@ -67,7 +69,6 @@ public class DatabaseService {
         TableMetadataService tableMetadataService,
         ThreadPoolManager threadPoolManager) {
         this.oraJdbcTemplate = oraJdbcTemplate;
-        this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.rlcmsBaseJdbcTemplate = rlcmsBaseJdbcTemplate;
         this.rlcmsPv1JdbcTemplate = rlcmsPv1JdbcTemplate;
         this.rlcmsPv2JdbcTemplate = rlcmsPv2JdbcTemplate;
@@ -100,6 +101,8 @@ public class DatabaseService {
         // 初始化任务队列和计数器
         csvExportTasks = new ConcurrentLinkedQueue<>();
         pendingExportTasks = new AtomicInteger(0);
+        // 清空已处理表集合
+        processedTables.clear();
 
         log.info("数据库服务初始化完成");
     }
@@ -136,6 +139,7 @@ public class DatabaseService {
         // 重置CSV导出任务状态
         csvExportTasks.clear();
         pendingExportTasks.set(0);
+        processedTables.clear();
 
         // 检查现有状态
         boolean hasRestoredTableInfo = tableInfoManager.hasTableInfo();
@@ -166,9 +170,6 @@ public class DatabaseService {
 
         // 初始化CSV文件，写入表头
         initCsvFile(outputFile);
-
-        // 用于追踪已完成处理的表
-        Set<String> processedTables = Collections.synchronizedSet(new HashSet<>());
 
         // 使用数据库专用线程池并发获取表信息
         List<CompletableFuture<Void>> dbFutures = new ArrayList<>();
@@ -242,7 +243,7 @@ public class DatabaseService {
      * 等待所有CSV导出任务完成
      */
     private void waitForCsvExportTasks() {
-        CompletableFuture[] tasks = csvExportTasks.toArray(new CompletableFuture[0]);
+        CompletableFuture<?>[] tasks = csvExportTasks.toArray(new CompletableFuture<?>[0]);
         if (tasks.length > 0) {
             CompletableFuture.allOf(tasks).join();
         }
@@ -252,7 +253,7 @@ public class DatabaseService {
      * 检查并队列化导出单个表（异步方式）
      */
     private void checkAndQueueExportTable(String tableName, Set<String> processedTables, File outputFile) {
-        // 快速检查表是否已处理，避免获取锁
+        // 快速检查表是否已处理
         if (processedTables.contains(tableName)) {
             return;
         }
@@ -276,25 +277,17 @@ public class DatabaseService {
 
         // 如果所有必需的数据源都已收集，则尝试导出
         if (collectedDataSources.containsAll(requiredDataSources)) {
-            // 使用原子操作检查并添加到处理集合
-            synchronized (processedTables) {
-                // 再次检查，确保没有其他线程已经处理了这个表
-                if (processedTables.contains(tableName)) {
-                    return;
-                }
+            // 使用ConcurrentHashMap的原子性操作来检查和添加
+            if (processedTables.add(tableName)) {
+                log.info("表[{}]已收集完所有必需的数据源数据，准备队列化导出", tableName);
 
-                // 标记为已处理 - 提前标记，避免其他线程重复处理
-                processedTables.add(tableName);
+                // 创建只包含此表的Map
+                Map<String, TableInfo> singleTableMap = new HashMap<>();
+                singleTableMap.put(tableName, tableInfo);
+
+                // 提交异步导出任务而不是直接导出
+                queueCsvExportTask(singleTableMap, outputFile, tableName);
             }
-
-            log.info("表[{}]已收集完所有必需的数据源数据，准备队列化导出", tableName);
-
-            // 创建只包含此表的Map
-            Map<String, TableInfo> singleTableMap = new HashMap<>();
-            singleTableMap.put(tableName, tableInfo);
-
-            // 提交异步导出任务而不是直接导出
-            queueCsvExportTask(singleTableMap, outputFile, tableName);
         }
     }
 
@@ -304,18 +297,12 @@ public class DatabaseService {
     private void queueRemainingTables(Set<String> processedTables, File outputFile) {
         Map<String, TableInfo> tableInfoMap = tableInfoManager.getTableInfoMap();
 
-        // 筛选出尚未处理的表 - 避免多次加锁，一次性获取所有未处理表
+        // 筛选出尚未处理的表
         Map<String, TableInfo> remainingTables = new HashMap<>();
-        Set<String> processedTablesCopy;
-        
-        synchronized (processedTables) {
-            // 创建已处理表的副本，避免在迭代过程中频繁获取锁
-            processedTablesCopy = new HashSet<>(processedTables);
-        }
 
-        // 使用副本进行筛选，无需持有锁
+        // 直接遍历并检查，无需同步，因为使用了线程安全的集合
         for (Map.Entry<String, TableInfo> entry : tableInfoMap.entrySet()) {
-            if (!processedTablesCopy.contains(entry.getKey())) {
+            if (!processedTables.contains(entry.getKey())) {
                 remainingTables.put(entry.getKey(), entry.getValue());
             }
         }
@@ -325,15 +312,15 @@ public class DatabaseService {
 
             // 分批处理剩余表以减少内存压力
             List<String> tableNames = new ArrayList<>(remainingTables.keySet());
-            int batchSize = 10;  // 每批处理10张表
-            int batches = (tableNames.size() + batchSize - 1) / batchSize;  // 向上取整
+            // 每批处理10张表
+            int batchSize = 10;
+            // 向上取整
+            int batches = (tableNames.size() + batchSize - 1) / batchSize;
 
             log.info("将{}个剩余表分为{}批处理", tableNames.size(), batches);
 
-            // 将所有表标记为已处理
-            synchronized (processedTables) {
-                processedTables.addAll(remainingTables.keySet());
-            }
+            // 将所有表添加到已处理集合
+            processedTables.addAll(remainingTables.keySet());
 
             // 按批次提交任务
             for (int i = 0; i < batches; i++) {
@@ -425,7 +412,8 @@ public class DatabaseService {
         log.info("开始追加数据到CSV文件: {}", outputFile.getAbsolutePath());
 
         // 准备CSV数据（不包括表头）
-        List<String> rows = new ArrayList<>(dataList.size() * 2); // 预分配更大空间，避免频繁扩容
+        // 预分配更大空间，避免频繁扩容
+        List<String> rows = new ArrayList<>(dataList.size() * 2);
 
         // 处理每个数据项并生成结果行
         dataList.forEach(info -> {
@@ -434,7 +422,7 @@ public class DatabaseService {
                 "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"};
 
             // 创建基础值列表
-            List<String> baseValues = new ArrayList<>(15); // 预估大小
+            List<String> baseValues = new ArrayList<>(15);
             baseValues.add(escapeCsvValue(info.getTableName()));
             baseValues.add(escapeCsvValue(info.getDataSources()));
             baseValues.add(escapeCsvValue(info.getMoneyFields()));
@@ -460,15 +448,14 @@ public class DatabaseService {
         });
 
         // 将数据追加到文件，使用更大的缓冲区提高性能
-        try (FileOutputStream fos = new FileOutputStream(outputFile, true);  // 注意这里设置为append模式
+        try (FileOutputStream fos = new FileOutputStream(outputFile, true);
              OutputStreamWriter osw = new OutputStreamWriter(fos, "GBK");
-             BufferedWriter writer = new BufferedWriter(osw, 8192)) { // 使用8KB缓冲区
+             BufferedWriter writer = new BufferedWriter(osw, 8192)) {
 
             for (String row : rows) {
                 writer.write(row);
                 writer.newLine();
             }
-            // 确保所有数据都写入文件
             writer.flush();
         }
 

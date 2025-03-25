@@ -8,6 +8,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.model.TableInfo;
+import io.github.luolong47.dbchecker.model.TableKey;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -27,7 +28,7 @@ public class ResumeStateManager {
 
     // 存储断点续跑状态
     private final Set<String> processedDatabases = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Set<String> processedTables = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Set<TableKey> processedTables = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     // 缓存数据库处理状态
     private final Map<String, Boolean> databaseProcessingCache = new ConcurrentHashMap<>();
@@ -35,6 +36,9 @@ public class ResumeStateManager {
     private final Map<String, Boolean> tableProcessingCache = new ConcurrentHashMap<>();
     // 缓存重跑数据库列表
     private final Map<String, Set<String>> rerunDatabasesCache = new ConcurrentHashMap<>();
+
+    // 内存中的表信息缓存
+    private final Map<String, TableInfo> tableInfoCache = new ConcurrentHashMap<>();
 
     // 引入配置类
     private final DbConfig config;
@@ -60,6 +64,7 @@ public class ResumeStateManager {
         // 清空当前状态，准备重新加载
         processedDatabases.clear();
         processedTables.clear();
+        tableInfoCache.clear();
 
         // 只在断点续跑模式下加载状态
         if ("RESUME".equalsIgnoreCase(runMode)) {
@@ -84,12 +89,63 @@ public class ResumeStateManager {
                     JSONArray tablesArray = state.getJSONArray("tables");
                     if (tablesArray != null) {
                         for (int i = 0; i < tablesArray.size(); i++) {
-                            processedTables.add(tablesArray.getStr(i));
+                            JSONObject tableKeyObj = tablesArray.getJSONObject(i);
+                            TableKey tableKey = new TableKey(
+                                tableKeyObj.getStr("databaseName"),
+                                tableKeyObj.getStr("tableName")
+                            );
+                            processedTables.add(tableKey);
                         }
                     }
 
-                    log.info("成功从断点续跑文件恢复状态，已处理数据库: {}，已处理表: {}",
-                        processedDatabases.size(), processedTables.size());
+                    // 恢复表信息
+                    JSONObject tableInfoObj = state.getJSONObject("tableInfo");
+                    if (tableInfoObj != null) {
+                        for (String tableName : tableInfoObj.keySet()) {
+                            JSONObject tableData = tableInfoObj.getJSONObject(tableName);
+                            TableInfo tableInfo = new TableInfo(tableName);
+
+                            // 恢复数据源列表
+                            JSONArray dataSources = tableData.getJSONArray("dataSources");
+                            if (dataSources != null) {
+                                for (int i = 0; i < dataSources.size(); i++) {
+                                    tableInfo.addDataSource(dataSources.getStr(i));
+                                }
+                            }
+
+                            // 恢复记录数
+                            JSONObject recordCounts = tableData.getJSONObject("recordCounts");
+                            if (recordCounts != null) {
+                                for (String ds : recordCounts.keySet()) {
+                                    tableInfo.setRecordCount(ds, recordCounts.getLong(ds));
+                                }
+                            }
+
+                            // 恢复金额字段
+                            JSONArray moneyFields = tableData.getJSONArray("moneyFields");
+                            if (moneyFields != null) {
+                                for (int i = 0; i < moneyFields.size(); i++) {
+                                    tableInfo.addMoneyField(moneyFields.getStr(i));
+                                }
+                            }
+
+                            // 恢复金额SUM值
+                            JSONObject moneySums = tableData.getJSONObject("moneySums");
+                            if (moneySums != null) {
+                                for (String ds : moneySums.keySet()) {
+                                    JSONObject fieldSums = moneySums.getJSONObject(ds);
+                                    for (String field : fieldSums.keySet()) {
+                                        tableInfo.setMoneySum(ds, field, new BigDecimal(fieldSums.getStr(field)));
+                                    }
+                                }
+                            }
+
+                            tableInfoCache.put(tableName, tableInfo);
+                        }
+                    }
+
+                    log.info("成功从断点续跑文件恢复状态，已处理数据库: {}，已处理表: {}，表信息: {}",
+                        processedDatabases.size(), processedTables.size(), tableInfoCache.size());
                 } else {
                     log.info("没有找到断点续跑文件，将从头开始处理");
                 }
@@ -104,22 +160,40 @@ public class ResumeStateManager {
     }
 
     /**
-     * 保存断点续跑状态
+     * 保存断点续跑状态到内存
      */
     public void saveResumeState(Map<String, TableInfo> tableInfoMap) {
+        // 更新内存中的表信息缓存
+        tableInfoCache.putAll(tableInfoMap);
+    }
+
+    /**
+     * 保存断点续跑状态到文件（由定时任务调用）
+     */
+    public void saveResumeStateToFile() {
         try {
             JSONObject json = new JSONObject();
             // 保存已处理的数据库和表列表
             json.set("databases", processedDatabases);
-            json.set("tables", processedTables);
+
+            // 将TableKey对象转换为JSON数组
+            JSONArray tablesArray = new JSONArray();
+            for (TableKey tableKey : processedTables) {
+                JSONObject tableKeyObj = new JSONObject();
+                tableKeyObj.set("databaseName", tableKey.getDatabaseName());
+                tableKeyObj.set("tableName", tableKey.getTableName());
+                tablesArray.add(tableKeyObj);
+            }
+            json.set("tables", tablesArray);
+            
             json.set("lastUpdated", DateUtil.now());
 
             // 序列化表信息
-            if (!tableInfoMap.isEmpty()) {
+            if (!tableInfoCache.isEmpty()) {
                 Map<String, Object> serializedTableInfo = new HashMap<>();
 
                 // 遍历并序列化每个表的元数据
-                for (Map.Entry<String, TableInfo> entry : tableInfoMap.entrySet()) {
+                for (Map.Entry<String, TableInfo> entry : tableInfoCache.entrySet()) {
                     Map<String, Object> tableData = new HashMap<>();
                     TableInfo metaInfo = entry.getValue();
 
@@ -153,9 +227,6 @@ public class ResumeStateManager {
 
     /**
      * 将BigDecimal类型的金额SUM值转换为字符串格式
-     *
-     * @param moneySums 金额SUM值映射
-     * @return 转换后的字符串映射
      */
     private Map<String, Map<String, String>> convertMoneySumsToString(Map<String, Map<String, BigDecimal>> moneySums) {
         Map<String, Map<String, String>> moneySumsStr = new HashMap<>();
@@ -247,7 +318,7 @@ public class ResumeStateManager {
 
         String cacheKey = tableName + ":" + dataSourceName + ":" + runMode + ":" + rerunDatabases;
         return tableProcessingCache.computeIfAbsent(cacheKey, k -> {
-            String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
+            TableKey tableKey = new TableKey(dataSourceName, tableName);
             if (!StrUtil.isEmpty(rerunDatabases)) {
                 Set<String> rerunSet = getRerunDatabasesSet(rerunDatabases);
                 return rerunSet.contains(dataSourceName.toLowerCase()) || !processedTables.contains(tableKey);
@@ -283,11 +354,12 @@ public class ResumeStateManager {
      * 标记表为已处理
      */
     public void markTableProcessed(String tableName, String dataSourceName) {
-        String tableKey = StrUtil.format("{}|{}", dataSourceName, tableName);
+        TableKey tableKey = new TableKey(dataSourceName, tableName);
         processedTables.add(tableKey);
         // 清除相关缓存
         tableProcessingCache.keySet().stream()
             .filter(key -> key.startsWith(tableName + ":" + dataSourceName + ":"))
             .forEach(tableProcessingCache::remove);
     }
+
 }

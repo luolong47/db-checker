@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.manager;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Component;
@@ -30,7 +31,12 @@ public class ThreadPoolManager implements DisposableBean {
     private static final int CSV_POOL_SIZE = 4;
     // 数据库专用线程池集合，每个数据库一个线程池
     private Map<String, ExecutorService> dbThreadPools;
+    /**
+     * -- GETTER --
+     * 获取CSV导出线程池
+     */
     // CSV导出专用线程池
+    @Getter
     private ExecutorService csvExportExecutor;
 
     @PostConstruct
@@ -60,8 +66,12 @@ public class ThreadPoolManager implements DisposableBean {
                 @Override
                 public Thread newThread(Runnable r) {
                     Thread t = new Thread(r, dbName + "-pool-" + threadNumber.getAndIncrement());
-                    if (t.isDaemon()) t.setDaemon(false);
-                    if (t.getPriority() != Thread.NORM_PRIORITY) t.setPriority(Thread.NORM_PRIORITY);
+                    if (t.isDaemon()) {
+                        t.setDaemon(false);
+                    }
+                    if (t.getPriority() != Thread.NORM_PRIORITY) {
+                        t.setPriority(Thread.NORM_PRIORITY);
+                    }
                     return t;
                 }
             });
@@ -80,8 +90,12 @@ public class ThreadPoolManager implements DisposableBean {
             @Override
             public Thread newThread(Runnable r) {
                 Thread t = new Thread(r, "csv-export-" + threadNumber.getAndIncrement());
-                if (t.isDaemon()) t.setDaemon(false);
-                if (t.getPriority() != Thread.NORM_PRIORITY) t.setPriority(Thread.NORM_PRIORITY);
+                if (t.isDaemon()) {
+                    t.setDaemon(false);
+                }
+                if (t.getPriority() != Thread.NORM_PRIORITY) {
+                    t.setPriority(Thread.NORM_PRIORITY);
+                }
                 return t;
             }
         });
@@ -97,20 +111,6 @@ public class ThreadPoolManager implements DisposableBean {
             return ForkJoinPool.commonPool();
         }
         return executor;
-    }
-
-    /**
-     * 获取CSV导出线程池
-     */
-    public ExecutorService getCsvExportExecutor() {
-        return csvExportExecutor;
-    }
-
-    /**
-     * 获取所有数据库名称
-     */
-    public List<String> getAllDbNames() {
-        return DB_NAMES;
     }
 
     /**

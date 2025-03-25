@@ -4,7 +4,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
@@ -32,12 +31,14 @@ public class DatabaseInitializer implements CommandLineRunner {
     @javax.annotation.Resource
     private DatabaseInitScriptsProperties initProperties;
 
-    @Qualifier("dataSourceMap")
-    @Autowired
-    private Map<String, DataSource> dataSourceMap;
+    private final Map<String, DataSource> dataSourceMap;
+
+    public DatabaseInitializer(@Qualifier("dataSourceMap") Map<String, DataSource> dataSourceMap) {
+        this.dataSourceMap = dataSourceMap;
+    }
 
     @Override
-    public void run(String... args) throws Exception {
+    public void run(String... args) {
         if (!initProperties.isEnabled()) {
             log.info("数据库初始化已禁用");
             return;

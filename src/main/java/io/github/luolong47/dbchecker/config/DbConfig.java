@@ -383,29 +383,6 @@ public class DbConfig {
     }
 
     /**
-     * 应用WHERE条件到SQL语句
-     *
-     * @param sql            原始SQL
-     * @param dataSourceName 数据源名称
-     * @param tableName      表名
-     * @return 添加了WHERE条件的SQL
-     */
-    public String applyCondition(String sql, String dataSourceName, String tableName) {
-        String condition = getCondition(dataSourceName, tableName);
-        if (StrUtil.isNotEmpty(condition)) {
-            String newSql;
-            if (StrUtil.containsIgnoreCase(sql, " where ")) {
-                newSql = sql + " AND " + condition;
-            } else {
-                newSql = sql + " WHERE " + condition;
-            }
-            log.info("应用WHERE条件 - 原SQL: [{}], 新SQL: [{}]", sql, newSql);
-            return newSql;
-        }
-        return sql;
-    }
-
-    /**
      * 获取SQL提示，优化版本 - 时间复杂度O(1)
      * 使用预处理的映射表和缓存，避免重复计算
      *
@@ -458,8 +435,7 @@ public class DbConfig {
         }
 
         String tables = slaveQuery.getTables();
-        return Arrays.asList(tables.split(","))
-            .stream()
+        return Arrays.stream(tables.split(","))
             .map(String::trim)
             .map(String::toLowerCase)
             .anyMatch(t -> t.equalsIgnoreCase(tableName));

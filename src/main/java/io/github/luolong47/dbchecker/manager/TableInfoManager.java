@@ -53,7 +53,7 @@ public class TableInfoManager {
             String key = table.getTableName();
 
             // 使用ConcurrentHashMap的computeIfAbsent保证线程安全地获取或创建TableInfo对象
-            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableInfo(k));
+            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, TableInfo::new);
 
             // 添加数据源和记录数 - 这些操作在TableInfo内部使用ConcurrentHashMap，已线程安全
             metaInfo.addDataSource(sourceName);

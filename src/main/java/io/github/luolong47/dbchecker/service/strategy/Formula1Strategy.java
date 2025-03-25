@@ -1,57 +1,39 @@
 package io.github.luolong47.dbchecker.service.strategy;
 
 import io.github.luolong47.dbchecker.model.DiffInfo;
-import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
-import lombok.RequiredArgsConstructor;
 
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 公式1策略：ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3
  */
-@RequiredArgsConstructor
-public class Formula1Strategy implements FormulaStrategy {
-    private final String desc = "公式1(分省-拆分): ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3";
-    private final ValueCollector valueCollector;
+public class Formula1Strategy extends AbstractFormulaStrategy {
+    public Formula1Strategy(ValueCollector valueCollector) {
+        super(valueCollector);
+    }
 
     @Override
     public String getDesc() {
-        return desc;
+        return "公式1(分省-拆分): ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3";
     }
 
     @Override
-    public String calculateSum(MoneyFieldSumInfo info) {
-        Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) {
-            return "N/A";
-        }
-
+    protected boolean compareMoneyValues(Map<String, BigDecimal> values) {
         BigDecimal sum = values.get("rlcms_pv1")
             .add(values.get("rlcms_pv2"))
             .add(values.get("rlcms_pv3"));
-        return valueCollector.isApproximatelyEqual(values.get("ora"), sum) ? "TRUE" : "FALSE";
+        return valueCollector.isApproximatelyEqual(values.get("ora"), sum);
     }
 
     @Override
-    public String calculateCount(MoneyFieldSumInfo info) {
-        Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) {
-            return "N/A";
-        }
-
+    protected boolean compareCountValues(Map<String, Long> values) {
         long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
-        return values.get("ora").equals(sum) ? "TRUE" : "FALSE";
+        return values.get("ora").equals(sum);
     }
 
     @Override
-    public DiffInfo getDiffInfoForSum(MoneyFieldSumInfo info) {
-        Map<String, BigDecimal> values = valueCollector.collectSumValues(info);
-        if (containsNull(values)) {
-            return new DiffInfo("N/A", "");
-        }
-
+    protected DiffInfo getMoneyDiffInfo(Map<String, BigDecimal> values) {
         BigDecimal sum = values.get("rlcms_pv1")
             .add(values.get("rlcms_pv2"))
             .add(values.get("rlcms_pv3"));
@@ -65,12 +47,7 @@ public class Formula1Strategy implements FormulaStrategy {
     }
 
     @Override
-    public DiffInfo getDiffInfoForCount(MoneyFieldSumInfo info) {
-        Map<String, Long> values = valueCollector.collectCountValues(info);
-        if (containsNull(values)) {
-            return new DiffInfo("N/A", "");
-        }
-
+    protected DiffInfo getCountDiffInfo(Map<String, Long> values) {
         long sum = values.get("rlcms_pv1") + values.get("rlcms_pv2") + values.get("rlcms_pv3");
         long diff = values.get("ora") - sum;
         return new DiffInfo(
@@ -81,10 +58,4 @@ public class Formula1Strategy implements FormulaStrategy {
         );
     }
 
-    /**
-     * 检查Map中是否包含null值
-     */
-    private <T> boolean containsNull(Map<String, T> map) {
-        return map.values().stream().anyMatch(Objects::isNull);
-    }
-} 
+}
