@@ -488,7 +488,8 @@ public class DatabaseService {
                         .map(isGreater -> "'" + scaledValue)
                         .orElse(scaledValue.toString());
                 })
-                .orElseGet(v::toString))
+                .orElseGet(v::toString)
+            )
             .orElse("");
     }
 
