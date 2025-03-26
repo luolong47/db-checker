@@ -26,11 +26,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 数据库服务类，用于测试多数据源
+ * @author LuoLong
  */
 @Slf4j
 @Service
 public class DatabaseService {
 
+    public static final BigDecimal THRESHOLD = new BigDecimal("100000000000000");
     private final JdbcTemplate oraJdbcTemplate;
     private final JdbcTemplate rlcmsBaseJdbcTemplate;
     private final JdbcTemplate rlcmsPv1JdbcTemplate;
@@ -475,14 +477,19 @@ public class DatabaseService {
      * 将值格式化为字符串表示
      */
     private String formatToString(Object value) {
-        if (value instanceof BigDecimal) {
-            BigDecimal bigDecimal = (BigDecimal) value;
-            // 对值取100000000000000的余
-            BigDecimal remainder = bigDecimal.remainder(new BigDecimal("100000000000000"));
-            // 保持3位小数
-            return remainder.setScale(3, RoundingMode.HALF_UP).toString();
-        }
-        return value.toString();
+        return Optional.of(value)
+            .map(v -> Optional.of(v)
+                .filter(val -> val instanceof BigDecimal)
+                .map(val -> (BigDecimal) val)
+                .map(bigDecimal -> {
+                    BigDecimal scaledValue = bigDecimal.setScale(3, RoundingMode.HALF_UP);
+                    return Optional.of(THRESHOLD.compareTo(bigDecimal) < 0)
+                        .filter(Boolean::booleanValue)
+                        .map(isGreater -> "'" + scaledValue)
+                        .orElse(scaledValue.toString());
+                })
+                .orElseGet(v::toString))
+            .orElse("");
     }
 
     /**
