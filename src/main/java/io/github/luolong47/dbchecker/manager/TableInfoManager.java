@@ -50,10 +50,11 @@ public class TableInfoManager {
         log.info("开始处理{}的{}个表信息...", sourceName, tables.size());
 
         for (TableInfo table : tables) {
-            String key = table.getTableName();
+            // 将表名转换为小写作为键，确保大小写不敏感
+            String key = table.getTableName().toLowerCase();
 
             // 使用ConcurrentHashMap的computeIfAbsent保证线程安全地获取或创建TableInfo对象
-            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, TableInfo::new);
+            TableInfo metaInfo = tableInfoMap.computeIfAbsent(key, k -> new TableInfo(table.getTableName()));
 
             // 添加数据源和记录数 - 这些操作在TableInfo内部使用ConcurrentHashMap，已线程安全
             metaInfo.addDataSource(sourceName);

@@ -472,7 +472,7 @@ public class TableMetadataService {
      * 该方法根据配置的包含规则来判断表是否需要处理：
      * <ul>
      *   <li>如果指定了schema列表，检查表的schema是否在列表中</li>
-     *   <li>如果指定了表名列表，检查表名是否在列表中</li>
+     *   <li>如果指定了表名列表，检查表名是否在列表中（不区分大小写）</li>
      * </ul>
      * 判断结果会被缓存以提高性能。
      *
@@ -493,11 +493,20 @@ public class TableMetadataService {
                 }
             }
 
-            // 如果指定了表名，检查当前表是否在列表中
+            // 如果指定了表名，检查当前表是否在列表中（不区分大小写）
             if (StrUtil.isNotEmpty(includeTables)) {
-                List<String> tableList = Arrays.asList(includeTables.split(","));
+                String[] tableArray = includeTables.split(",");
                 String tableNameWithSchema = StrUtil.format("{}@{}", tableName, tableSchema);
-                return !tableList.contains(tableName) && !tableList.contains(tableNameWithSchema);
+                
+                boolean found = false;
+                for (String configTable : tableArray) {
+                    if (configTable.trim().equalsIgnoreCase(tableName) || 
+                        configTable.trim().equalsIgnoreCase(tableNameWithSchema)) {
+                        found = true;
+                        break;
+                    }
+                }
+                return !found;
             }
 
             return false;
@@ -559,13 +568,13 @@ public class TableMetadataService {
         // 默认所有表都应该在ora中
         dataSources.add("ora");
 
-        // 基于表名前缀或特定规则添加其他可能的数据源
-        if (tableName.startsWith("RLCMS_")) {
+        // 基于表名前缀或特定规则添加其他可能的数据源（不区分大小写）
+        if (tableName.toUpperCase().startsWith("RLCMS_") || tableName.toLowerCase().startsWith("rlcms_")) {
             dataSources.add("rlcms_base");
             dataSources.add("rlcms_pv1");
             dataSources.add("rlcms_pv2");
             dataSources.add("rlcms_pv3");
-        } else if (tableName.startsWith("BS_")) {
+        } else if (tableName.toUpperCase().startsWith("BS_") || tableName.toLowerCase().startsWith("bs_")) {
             dataSources.add("bscopy_pv1");
             dataSources.add("bscopy_pv2");
             dataSources.add("bscopy_pv3");
@@ -593,6 +602,7 @@ public class TableMetadataService {
     private boolean matches(String str, String pattern) {
         // 将通配符模式转换为正则表达式
         String regex = pattern.replace(".", "\\.").replace("*", ".*");
-        return str.matches(regex);
+        // 使用(?i)前缀使正则表达式不区分大小写
+        return str.matches("(?i)" + regex);
     }
 }

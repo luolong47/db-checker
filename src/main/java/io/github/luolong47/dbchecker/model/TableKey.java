@@ -41,11 +41,12 @@ public class TableKey {
             return false;
         }
         TableKey tableKey = (TableKey) o;
-        return databaseName.equals(tableKey.databaseName) && tableName.equals(tableKey.tableName);
+        return databaseName.equalsIgnoreCase(tableKey.databaseName) && 
+               tableName.equalsIgnoreCase(tableKey.tableName);
     }
 
     @Override
     public int hashCode() {
-        return 31 * databaseName.hashCode() + tableName.hashCode();
+        return 31 * databaseName.toLowerCase().hashCode() + tableName.toLowerCase().hashCode();
     }
 } 

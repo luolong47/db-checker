@@ -35,7 +35,20 @@ public class FormulaCalculationService {
      * 获取适用于表的公式策略
      */
     public FormulaStrategy getTableStrategy(String tableName) {
-        return tableStrategyCache.get(tableName);
+        // 直接从缓存获取（区分大小写）
+        FormulaStrategy strategy = tableStrategyCache.get(tableName);
+        if (strategy != null) {
+            return strategy;
+        }
+        
+        // 尝试以小写形式获取
+        strategy = tableStrategyCache.get(tableName.toLowerCase());
+        if (strategy != null) {
+            return strategy;
+        }
+        
+        // 尝试以大写形式获取
+        return tableStrategyCache.get(tableName.toUpperCase());
     }
 
     /**
@@ -155,6 +168,8 @@ public class FormulaCalculationService {
                     tableFormulaMap.put(table, formulaNum);
                     // 直接将表名与策略关联并存入缓存
                     tableStrategyCache.put(table, strategy);
+                    // 同时存储大写形式，确保大小写不敏感匹配
+                    tableStrategyCache.put(table.toUpperCase(), strategy);
                 }
             }
 
@@ -200,7 +215,7 @@ public class FormulaCalculationService {
 
         // 使用TableMetaInfo中的求和结果，直接构建输出信息
         sortedKeys.forEach(key -> {
-            TableInfo metaInfo = tableInfoMap.get(key);
+            TableInfo metaInfo = tableInfoMap.get(key.toLowerCase());
 
             // 对金额字段按字母排序
             List<String> sortedMoneyFields = new ArrayList<>(metaInfo.getMoneyFields());
@@ -291,7 +306,7 @@ public class FormulaCalculationService {
                 // 对于每个表，只添加一次COUNT特殊字段
                 if (!processedCountTables.contains(tableName)) {
                     // 添加COUNT特殊字段
-                    Optional.ofNullable(tableInfoMap.get(tableName))
+                    Optional.ofNullable(tableInfoMap.get(tableName.toLowerCase()))
                         .map(info -> new MoneyFieldSumInfo(tableName, info, "_COUNT"))
                         .ifPresent(enrichedDataList::add);
                     processedCountTables.add(tableName);
@@ -305,7 +320,7 @@ public class FormulaCalculationService {
         tablesWithoutMoneyFields.stream()
             // 避免重复添加
             .filter(tableName -> !processedCountTables.contains(tableName))
-            .map(tableInfoMap::get)
+            .map(tableName -> tableInfoMap.get(tableName.toLowerCase()))
             .filter(Objects::nonNull)
             .map(info -> {
                 MoneyFieldSumInfo countInfo = new MoneyFieldSumInfo(info.getTableName(), info, "_COUNT");

@@ -425,7 +425,8 @@ public class DatabaseService {
 
             // 创建基础值列表
             List<String> baseValues = new ArrayList<>(15);
-            baseValues.add(escapeCsvValue(info.getTableName()));
+            // 确保表名使用大写
+            baseValues.add(escapeCsvValue(info.getTableName().toUpperCase()));
             baseValues.add(escapeCsvValue(info.getDataSources()));
             baseValues.add(escapeCsvValue(info.getMoneyFields()));
             baseValues.add(escapeCsvValue(info.getSumField()));
