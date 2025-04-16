@@ -165,3 +165,13 @@ db:
     enable: true
     # 金额字段识别的最小小数位数
     minDecimalDigits: 3
+  pool:
+    defalut: 8
+    map:
+      ora: 8
+      rlcms_pv1: 8
+      rlcms_pv2: 8
+      rlcms_pv3: 8
+      bscopy_pv1: 8
+      bscopy_pv2: 8
+      bscopy_pv3: 8

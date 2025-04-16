@@ -57,6 +57,12 @@ public class DbConfig {
     private Formula formula = new Formula();
 
     /**
+     * 线程池配置
+     */
+    @NestedConfigurationProperty
+    private Pool pool = new Pool();
+
+    /**
      * SQL提示缓存: key=dataSourceName:tableName, value=SQL提示
      */
     private final Map<String, String> sqlHintCache = new ConcurrentHashMap<>();
@@ -119,6 +125,8 @@ public class DbConfig {
         log.debug("配置信息 - 公式5适用表: {}", formula.getFormula5());
         log.debug("配置信息 - 公式6适用表: {}", formula.getFormula6());
         log.debug("配置信息 - 从节点查询表: {}", slaveQuery.getTables());
+        log.debug("配置信息 - 线程池默认大小: {}", pool.getDefalut());
+        log.debug("配置信息 - 线程池配置映射: {}", pool.getMap());
 
         // 记录SQL提示配置
         log.debug("配置信息 - SQL提示类型映射: {}", hints.getType());
@@ -609,5 +617,21 @@ public class DbConfig {
          * 金额字段识别的最小小数位数
          */
         private Integer minDecimalDigits = 1;
+    }
+
+    /**
+     * 线程池配置类
+     */
+    @Data
+    public static class Pool {
+        /**
+         * 线程池默认大小
+         */
+        private Integer defalut = 2;
+
+        /**
+         * 各数据库线程池大小映射
+         */
+        private Map<String, Integer> map = new HashMap<>();
     }
 } 

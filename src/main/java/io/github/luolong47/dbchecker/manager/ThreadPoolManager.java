@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.manager;
 
+import io.github.luolong47.dbchecker.config.DbConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
@@ -25,12 +26,16 @@ public class ThreadPoolManager implements DisposableBean {
         "ora", "rlcms_base", "rlcms_pv1", "rlcms_pv2", "rlcms_pv3",
         "bscopy_pv1", "bscopy_pv2", "bscopy_pv3"
     );
-    // 数据库线程池核心线程数
-    private static final int DB_CORE_POOL_SIZE = 2;
+    
     // CSV导出线程池大小
     private static final int CSV_POOL_SIZE = 4;
+    
     // 数据库专用线程池集合，每个数据库一个线程池
     private Map<String, ExecutorService> dbThreadPools;
+    
+    // 数据库配置
+    private final DbConfig dbConfig;
+    
     /**
      * -- GETTER --
      * 获取CSV导出线程池
@@ -38,6 +43,10 @@ public class ThreadPoolManager implements DisposableBean {
     // CSV导出专用线程池
     @Getter
     private ExecutorService csvExportExecutor;
+    
+    public ThreadPoolManager(DbConfig dbConfig) {
+        this.dbConfig = dbConfig;
+    }
 
     @PostConstruct
     public void init() {
@@ -60,7 +69,11 @@ public class ThreadPoolManager implements DisposableBean {
 
         // 为每个数据库创建一个专用线程池
         for (String dbName : DB_NAMES) {
-            ExecutorService dbPool = Executors.newFixedThreadPool(DB_CORE_POOL_SIZE, new ThreadFactory() {
+            // 获取数据库特定的线程池大小，如果没有配置则使用默认值
+            int defaultPoolSize = dbConfig.getPool().getDefalut();
+            int poolSize = dbConfig.getPool().getMap().getOrDefault(dbName.replace("-", "_"), defaultPoolSize);
+            
+            ExecutorService dbPool = Executors.newFixedThreadPool(poolSize, new ThreadFactory() {
                 private final AtomicInteger threadNumber = new AtomicInteger(1);
 
                 @Override
@@ -76,7 +89,7 @@ public class ThreadPoolManager implements DisposableBean {
                 }
             });
             dbThreadPools.put(dbName, dbPool);
-            log.debug("创建数据库[{}]专用线程池，核心线程数: {}", dbName, DB_CORE_POOL_SIZE);
+            log.debug("创建数据库[{}]专用线程池，核心线程数: {}", dbName, poolSize);
         }
     }
 
