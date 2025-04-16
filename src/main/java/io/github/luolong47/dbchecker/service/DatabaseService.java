@@ -483,7 +483,9 @@ public class DatabaseService {
                 .filter(val -> val instanceof BigDecimal)
                 .map(val -> (BigDecimal) val)
                 .map(bigDecimal -> {
-                    BigDecimal scaledValue = bigDecimal.setScale(3, RoundingMode.HALF_UP);
+                    // 根据配置的精度进行格式化
+                    int scale = dbConfig.getSum().getScale();
+                    BigDecimal scaledValue = bigDecimal.setScale(scale, RoundingMode.HALF_UP);
                     return Optional.of(THRESHOLD.compareTo(bigDecimal) < 0)
                         .filter(Boolean::booleanValue)
                         .map(isGreater -> "'" + scaledValue)

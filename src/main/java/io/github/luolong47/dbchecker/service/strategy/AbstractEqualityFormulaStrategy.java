@@ -35,7 +35,7 @@ public abstract class AbstractEqualityFormulaStrategy extends AbstractFormulaStr
             if (!"ora".equals(entry.getKey())) {
                 BigDecimal diff = reference.subtract(entry.getValue());
                 totalDiff = totalDiff.add(diff.abs());
-                if (diff.abs().compareTo(new BigDecimal("0.01")) > 0) {
+                if (!valueCollector.isApproximatelyEqual(reference, entry.getValue())) {
                     diffs.add(String.format("%s(%s)", entry.getKey(), entry.getValue()));
                 }
             }

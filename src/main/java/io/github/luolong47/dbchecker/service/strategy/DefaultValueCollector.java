@@ -1,9 +1,11 @@
 package io.github.luolong47.dbchecker.service.strategy;
 
+import io.github.luolong47.dbchecker.config.DbConfig;
 import io.github.luolong47.dbchecker.model.MoneyFieldSumInfo;
 import lombok.RequiredArgsConstructor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,6 +20,7 @@ public class DefaultValueCollector implements ValueCollector {
     private final Map<String, Map<String, Long>> countValuesCache = new ConcurrentHashMap<>();
 
     private final String[] dataSources;
+    private final DbConfig dbConfig;
 
     @Override
     public Map<String, BigDecimal> collectSumValues(MoneyFieldSumInfo info) {
@@ -45,9 +48,24 @@ public class DefaultValueCollector implements ValueCollector {
 
     @Override
     public boolean isApproximatelyEqual(BigDecimal a, BigDecimal b) {
+        // 检查是否启用求和功能
+        if (!dbConfig.getSum().getEnable()) {
+            return false;
+        }
+        
+        // 获取配置的精度
+        int scale = dbConfig.getSum().getScale();
+        
         return Optional.ofNullable(a)
             .flatMap(valueA -> Optional.ofNullable(b)
-                .map(valueB -> valueA.subtract(valueB).abs().compareTo(new BigDecimal("0.01")) <= 0))
+                .map(valueB -> {
+                    // 根据配置的精度处理小数位
+                    BigDecimal aScaled = valueA.setScale(scale, RoundingMode.HALF_UP);
+                    BigDecimal bScaled = valueB.setScale(scale, RoundingMode.HALF_UP);
+                    
+                    // 比较处理后的值是否完全相等
+                    return aScaled.equals(bScaled);
+                }))
             .orElse(false);
     }
 

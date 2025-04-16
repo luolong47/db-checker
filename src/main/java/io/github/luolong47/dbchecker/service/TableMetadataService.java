@@ -56,6 +56,11 @@ public class TableMetadataService {
      * 线程池管理器
      */
     private final ThreadPoolManager threadPoolManager;
+    
+    /**
+     * 数据库配置
+     */
+    private final DbConfig dbConfig;
 
     /**
      * 构造函数，初始化Oracle主从数据源和线程池管理器
@@ -63,14 +68,17 @@ public class TableMetadataService {
      * @param oraJdbcTemplate      Oracle主库数据源
      * @param oraSlaveJdbcTemplate Oracle从库数据源
      * @param threadPoolManager    线程池管理器
+     * @param dbConfig             数据库配置
      */
     public TableMetadataService(
         @Qualifier("oraJdbcTemplate") JdbcTemplate oraJdbcTemplate,
         @Qualifier("oraSlaveJdbcTemplate") JdbcTemplate oraSlaveJdbcTemplate,
-        ThreadPoolManager threadPoolManager) {
+        ThreadPoolManager threadPoolManager,
+        DbConfig dbConfig) {
         /* Oracle主库数据源 */
         this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.threadPoolManager = threadPoolManager;
+        this.dbConfig = dbConfig;
     }
 
     /**
@@ -262,14 +270,23 @@ public class TableMetadataService {
      * @throws SQLException 如果获取列元数据时发生错误
      */
     private void findMoneyFields(String tableName, DatabaseMetaData metaData, TableInfo tableInfo) throws SQLException {
+        // 判断是否开启求和功能
+        if (!dbConfig.getSum().getEnable()) {
+            log.debug("[字段识别] 表[{}]的求和功能已禁用，跳过金额字段识别", tableName);
+            return;
+        }
+        
+        // 获取配置的最小小数位数
+        int minDecimalDigits = dbConfig.getSum().getMinDecimalDigits();
+        
         try (ResultSet columns = metaData.getColumns(null, null, tableName, null)) {
             while (columns.next()) {
                 String columnName = columns.getString("COLUMN_NAME");
                 int dataType = columns.getInt("DATA_TYPE");
                 int decimalDigits = columns.getInt("DECIMAL_DIGITS");
 
-                // 判断是否为金额字段：数值型且小数位不为0
-                if (isNumericType(dataType) && decimalDigits > 0) {
+                // 判断是否为金额字段：数值型且小数位大于等于配置的最小值
+                if (isNumericType(dataType) && decimalDigits >= minDecimalDigits) {
                     tableInfo.addMoneyField(columnName);
                     log.debug("[字段识别] 表[{}]发现金额字段[{}], 类型: {}, 小数位: {}",
                         tableName, columnName, dataType, decimalDigits);

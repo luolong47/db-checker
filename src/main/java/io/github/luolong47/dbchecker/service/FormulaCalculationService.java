@@ -119,12 +119,12 @@ public class FormulaCalculationService {
 
         // 初始化各个公式的策略
         Map<Integer, FormulaStrategy> strategies = new HashMap<>();
-        strategies.put(1, new Formula1Strategy(new DefaultValueCollector(formulaDataSources.get(1))));
-        strategies.put(2, new Formula2Strategy(new DefaultValueCollector(formulaDataSources.get(2))));
-        strategies.put(3, new Formula3Strategy(new DefaultValueCollector(formulaDataSources.get(3))));
-        strategies.put(4, new Formula4Strategy(new DefaultValueCollector(formulaDataSources.get(4))));
-        strategies.put(5, new Formula5Strategy(new DefaultValueCollector(formulaDataSources.get(5))));
-        strategies.put(6, new Formula6Strategy(new DefaultValueCollector(formulaDataSources.get(6))));
+        strategies.put(1, new Formula1Strategy(new DefaultValueCollector(formulaDataSources.get(1), config)));
+        strategies.put(2, new Formula2Strategy(new DefaultValueCollector(formulaDataSources.get(2), config)));
+        strategies.put(3, new Formula3Strategy(new DefaultValueCollector(formulaDataSources.get(3), config)));
+        strategies.put(4, new Formula4Strategy(new DefaultValueCollector(formulaDataSources.get(4), config)));
+        strategies.put(5, new Formula5Strategy(new DefaultValueCollector(formulaDataSources.get(5), config)));
+        strategies.put(6, new Formula6Strategy(new DefaultValueCollector(formulaDataSources.get(6), config)));
 
         // 使用Stream API统一处理所有公式配置
         Map<Integer, String> formulaConfigs = new HashMap<>();

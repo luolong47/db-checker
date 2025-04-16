@@ -84,6 +84,12 @@ public class DbConfig {
     private Hints hints = new Hints();
 
     /**
+     * 求和配置
+     */
+    @NestedConfigurationProperty
+    private Sum sum = new Sum();
+
+    /**
      * 初始化时记录已加载的条件
      */
     @PostConstruct
@@ -582,5 +588,26 @@ public class DbConfig {
          * 要使用从节点查询的表名列表，多个表名使用逗号分隔
          */
         private String tables;
+    }
+
+    /**
+     * 求和配置
+     */
+    @Data
+    public static class Sum {
+        /**
+         * 是否启用求和
+         */
+        private Boolean enable = true;
+        
+        /**
+         * 求和精度（小数位数）
+         */
+        private Integer scale = 3;
+        
+        /**
+         * 金额字段识别的最小小数位数
+         */
+        private Integer minDecimalDigits = 1;
     }
 } 
