@@ -341,10 +341,7 @@ public class TableMetadataService {
 
             // 添加金额字段的聚合
             for (String field : moneyFields) {
-                // 无条件SUM
-                sqlBuilder.append(", SUM(").append(field).append(") AS \"").append(field).append("_ALL\"");
-
-                // 有条件SUM
+                // 只保留有条件SUM
                 if (hasWhereCondition) {
                     sqlBuilder.append(", SUM(CASE WHEN ").append(whereCondition).append(" THEN ").append(field).append(" ELSE 0 END) AS \"").append(field).append("\"");
                 } else {
@@ -426,33 +423,11 @@ public class TableMetadataService {
                             }
                         }
                         tableInfo.setMoneySum(dataSourceName, fieldName, sumValue);
-
-                        // 设置无条件SUM值
-                        String fieldNameAll = fieldName + "_ALL";
-                        value = resultMap.get(fieldNameAll);
-                        BigDecimal sumValueAll = null;
-                        if (value != null) {
-                            try {
-                                if (value instanceof BigDecimal) {
-                                    sumValueAll = (BigDecimal) value;
-                                } else if (value instanceof Number) {
-                                    sumValueAll = BigDecimal.valueOf(((Number) value).doubleValue());
-                                } else {
-                                    sumValueAll = new BigDecimal(value.toString());
-                                }
-                            } catch (NumberFormatException e) {
-                                log.error("[金额字段解析] 表[{}]字段[{}]_ALL无法将值[{}]转换为BigDecimal: {}",
-                                    tableName, fieldName, value, e.getMessage());
-                            }
-                        }
-                        tableInfo.setMoneySumAll(dataSourceName, fieldName, sumValueAll);
-                        log.debug("[金额统计] 表[{}]字段[{}]在数据源[{}]的无条件SUM值: {}",
-                            tableName, fieldName, dataSourceName, sumValueAll);
                         log.debug("[金额统计] 表[{}]字段[{}]在数据源[{}]的条件SUM值: {}",
                             tableName, fieldName, dataSourceName, sumValue);
                     }
 
-                    log.debug("[金额汇总] 表[{}]的所有无条件SUM值: {}", tableName, tableInfo.getAllMoneySumsAll());
+                    log.debug("[金额汇总] 表[{}]的所有条件SUM值: {}", tableName, tableInfo.getAllMoneySums());
                 }
 
                 return true;
