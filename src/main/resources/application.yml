@@ -90,7 +90,7 @@ spring:
       driver-class-name: org.h2.Driver
       jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
       username: sa
-      password:
+      password: 777
 
 # 日志配置
 logging:

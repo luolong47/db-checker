@@ -34,6 +34,7 @@ public class DatabaseService {
 
     public static final BigDecimal THRESHOLD = new BigDecimal("100000000000000");
     private final JdbcTemplate oraJdbcTemplate;
+    private final JdbcTemplate oraSlaveJdbcTemplate;
     private final JdbcTemplate rlcmsBaseJdbcTemplate;
     private final JdbcTemplate rlcmsPv1JdbcTemplate;
     private final JdbcTemplate rlcmsPv2JdbcTemplate;
@@ -71,6 +72,7 @@ public class DatabaseService {
         TableMetadataService tableMetadataService,
         ThreadPoolManager threadPoolManager) {
         this.oraJdbcTemplate = oraJdbcTemplate;
+        this.oraSlaveJdbcTemplate = oraSlaveJdbcTemplate;
         this.rlcmsBaseJdbcTemplate = rlcmsBaseJdbcTemplate;
         this.rlcmsPv1JdbcTemplate = rlcmsPv1JdbcTemplate;
         this.rlcmsPv2JdbcTemplate = rlcmsPv2JdbcTemplate;
@@ -97,6 +99,9 @@ public class DatabaseService {
         log.debug("配置信息 - 包含表: {}", dbConfig.getIncludeTables());
         log.debug("配置信息 - 包含Schema: {}", dbConfig.getIncludeSchemas());
 
+        // 检查所有数据源连接
+        checkAllDataSourcesConnection();
+
         // 根据运行模式初始化状态
         resumeStateManager.initResumeState(dbConfig.getRunMode());
 
@@ -110,14 +115,56 @@ public class DatabaseService {
     }
 
     /**
+     * 检查所有数据源连接
+     * 当有任何数据源连接失败时抛出异常
+     */
+    public void checkAllDataSourcesConnection() {
+        log.info("正在检查所有数据源连接...");
+        Map<String, JdbcTemplate> allDatabases = new LinkedHashMap<>();
+        allDatabases.put("ora", oraJdbcTemplate);
+        allDatabases.put("ora-slave", oraSlaveJdbcTemplate);
+        allDatabases.put("rlcms_base", rlcmsBaseJdbcTemplate);
+        allDatabases.put("rlcms_pv1", rlcmsPv1JdbcTemplate);
+        allDatabases.put("rlcms_pv2", rlcmsPv2JdbcTemplate);
+        allDatabases.put("rlcms_pv3", rlcmsPv3JdbcTemplate);
+        allDatabases.put("bscopy_pv1", bscopyPv1JdbcTemplate);
+        allDatabases.put("bscopy_pv2", bscopyPv2JdbcTemplate);
+        allDatabases.put("bscopy_pv3", bscopyPv3JdbcTemplate);
+
+        List<String> failedDataSources = new ArrayList<>();
+
+        for (Map.Entry<String, JdbcTemplate> entry : allDatabases.entrySet()) {
+            String dataSourceName = entry.getKey();
+            JdbcTemplate jdbcTemplate = entry.getValue();
+            
+            log.info("正在检查数据源[{}]连接...", dataSourceName);
+            try {
+                // 使用JdbcTemplate获取连接并执行简单查询测试连接
+                jdbcTemplate.getDataSource().getConnection().close();
+                log.info("数据源[{}]连接成功", dataSourceName);
+            } catch (Exception e) {
+                log.error("数据源[{}]连接失败: {}", dataSourceName, e.getMessage());
+                failedDataSources.add(dataSourceName);
+            }
+        }
+
+        if (!failedDataSources.isEmpty()) {
+            String errorMsg = "以下数据源连接失败: " + String.join(", ", failedDataSources);
+            log.error(errorMsg);
+            throw new RuntimeException(errorMsg);
+        }
+
+        log.info("所有数据源连接检查完成，全部连接正常");
+    }
+
+    /**
      * 获取需要处理的数据库列表
      */
     private Map<String, JdbcTemplate> getDatabasesToProcess() {
         // 全部可用的数据库列表
         Map<String, JdbcTemplate> allDatabases = new LinkedHashMap<>();
         allDatabases.put("ora", oraJdbcTemplate);
-        // ora-slave只作为查询替代，不直接处理，所以不添加到处理列表中
-        // allDatabases.put("ora-slave", oraSlaveJdbcTemplate);
+        allDatabases.put("ora-slave", oraSlaveJdbcTemplate);
         allDatabases.put("rlcms_base", rlcmsBaseJdbcTemplate);
         allDatabases.put("rlcms_pv1", rlcmsPv1JdbcTemplate);
         allDatabases.put("rlcms_pv2", rlcmsPv2JdbcTemplate);

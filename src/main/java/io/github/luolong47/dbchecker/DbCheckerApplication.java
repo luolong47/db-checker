@@ -48,9 +48,21 @@ public class DbCheckerApplication {
             log.info("等待数据库初始化完成...");
             Thread.sleep(2000);
             
-            log.info("开始测试多数据源...");
-            
             try {
+                // 检查所有数据源连接
+                log.info("开始检查所有数据源连接...");
+                try {
+                    databaseService.checkAllDataSourcesConnection();
+                    log.info("所有数据源连接正常，开始执行测试...");
+                } catch (Exception e) {
+                    log.error("数据源连接检查失败: {}", e.getMessage());
+                    // 连接失败直接退出程序
+                    log.info("由于数据源连接失败，程序将退出");
+                    System.exit(1);
+                }
+            
+                log.info("开始测试多数据源...");
+                
                 // 使用Stopwatch计时
                 StopWatch stopWatch = new StopWatch();
                 stopWatch.start("导出金额字段SUM比对");
