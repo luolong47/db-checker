@@ -21,7 +21,7 @@ public class ResumeStateTask {
     /**
      * 每2秒执行一次状态保存
      */
-    @Scheduled(fixedRate = 2000)
+    @Scheduled(fixedRate = 10000)
     public void saveResumeState() {
         resumeStateManager.saveResumeStateToFile();
     }

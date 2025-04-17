@@ -169,6 +169,7 @@ db:
     defalut: 8
     map:
       ora: 8
+      rlcms_base: 8
       rlcms_pv1: 8
       rlcms_pv2: 8
       rlcms_pv3: 8

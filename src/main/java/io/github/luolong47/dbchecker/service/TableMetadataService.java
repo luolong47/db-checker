@@ -147,6 +147,23 @@ public class TableMetadataService {
                 }
                 // 标记该数据库为已处理
                 resumeStateManager.markDatabaseProcessed(dataSourceName);
+                
+                // 按照配置文件中db.include.tables的顺序对结果进行排序
+                if (includeTables != null && !includeTables.isEmpty()) {
+                    Map<String, Integer> tableOrderMap = new HashMap<>();
+                    String[] configuredTables = includeTables.split(",");
+                    for (int i = 0; i < configuredTables.length; i++) {
+                        String configuredTable = configuredTables[i].trim();
+                        tableOrderMap.put(configuredTable.toUpperCase(), i);
+                    }
+                    
+                    tables.sort((t1, t2) -> {
+                        Integer order1 = tableOrderMap.getOrDefault(t1.getTableName().toUpperCase(), Integer.MAX_VALUE);
+                        Integer order2 = tableOrderMap.getOrDefault(t2.getTableName().toUpperCase(), Integer.MAX_VALUE);
+                        return order1.compareTo(order2);
+                    });
+                }
+                
                 return tables;
             } catch (SQLException e) {
                 log.error("从数据源[{}]获取表信息时出错: {}", dataSourceName, e.getMessage(), e);
