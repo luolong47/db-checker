@@ -2,10 +2,14 @@ package io.github.luolong47.dbchecker;
 
 import cn.hutool.extra.spring.EnableSpringUtil;
 import cn.hutool.extra.spring.SpringUtil;
-import io.github.luolong47.dbchecker.config.DynamicDataSourceManager;
+import io.github.luolong47.dbchecker.manager.DynamicDataSourceManager;
+import io.github.luolong47.dbchecker.manager.TableManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @SpringBootApplication
@@ -28,6 +32,8 @@ public class DbCheckerApplication {
                 log.info("----------------------------------------");
             }
         });
+        TableManager tableManager = SpringUtil.getBean(TableManager.class);
+        Map<String, List<String>> tb2dbs = tableManager.getTb2dbs();
         log.info("END");
     }
 }

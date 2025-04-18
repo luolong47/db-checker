@@ -1,4 +1,4 @@
-package io.github.luolong47.dbchecker.config;
+package io.github.luolong47.dbchecker.manager;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 动态JdbcTemplate管理器
@@ -15,7 +16,7 @@ import java.util.Map;
 @Component
 public class DynamicJdbcTemplateManager {
 
-    private final Map<String, JdbcTemplate> jdbcTemplates = new HashMap<>();
+    private final Map<String, JdbcTemplate> jdbcTemplates = new ConcurrentHashMap<>();
 
     @Autowired
     public DynamicJdbcTemplateManager(

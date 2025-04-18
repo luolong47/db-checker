@@ -1,4 +1,4 @@
-package io.github.luolong47.dbchecker.config;
+package io.github.luolong47.dbchecker.manager;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import javax.sql.DataSource;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 动态数据源管理器
@@ -15,7 +16,7 @@ import java.util.Map;
 @Component
 public class DynamicDataSourceManager {
 
-    private final Map<String, DataSource> dataSources = new HashMap<>();
+    private final Map<String, DataSource> dataSources = new ConcurrentHashMap<>();
 
     @Autowired
     public DynamicDataSourceManager(

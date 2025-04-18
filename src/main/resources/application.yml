@@ -191,6 +191,7 @@ logging:
     root: info
     org.springframework.jdbc.core: info
     io.github.luolong47.dbchecker: info
+    org.springframework.jdbc.core.JdbcTemplate: debug
     com.zaxxer.hikari: info
     # 日志文件配置
   file:
