@@ -1,96 +1,189 @@
 spring:
   application:
     name: db-checker
-  # 禁用Spring Boot的自动初始化
-  sql:
-    init:
-      mode: never
-  # 主数据源配置
+  # 数据源配置
   datasource:
-    # 数据库初始化脚本配置
-    init:
-      # 是否启用初始化
-      enabled: false
-      # 各数据源脚本配置
-      scripts:
-        ora:
-          - db/schema-ora.sql
-          - db/data-ora.sql
-        rlcms-base:
-          - db/schema-rlcms_base.sql
-          - db/data-rlcms_base.sql
-        rlcms-pv1:
-          - db/schema-rlcms_pv1.sql
-          - db/data-rlcms_pv1.sql
-        rlcms-pv2:
-          - db/schema-rlcms_pv2.sql
-          - db/data-rlcms_pv2.sql
-        rlcms-pv3:
-          - db/schema-rlcms_pv3.sql
-          - db/data-rlcms_pv3.sql
-        bscopy-pv1:
-          - db/schema-bscopy_pv1.sql
-          - db/data-bscopy_pv1.sql
-        bscopy-pv2:
-          - db/schema-bscopy_pv2.sql
-          - db/data-bscopy_pv2.sql
-        bscopy-pv3:
-          - db/schema-bscopy_pv3.sql
-          - db/data-bscopy_pv3.sql
-    # ora数据源配置（原primary）
-    ora:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # ora-slave数据源配置（ora的从节点）
-    ora-slave:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # rlcms_base数据源配置（原secondary）
-    rlcms-base:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/rlcms_base;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # rlcms_pv1数据源配置（原tertiary）
-    rlcms-pv1:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/rlcms_pv1;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # rlcms_pv2数据源配置（原fourth）
-    rlcms-pv2:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/rlcms_pv2;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # rlcms_pv3数据源配置（原fifth）
-    rlcms-pv3:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/rlcms_pv3;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # bscopy_pv1数据源配置（原sixth）
-    bscopy-pv1:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/bscopy_pv1;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # bscopy_pv2数据源配置（原seventh）
-    bscopy-pv2:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
-      username: sa
-      password:
-    # bscopy_pv3数据源配置（原eighth）
-    bscopy-pv3:
-      driver-class-name: org.h2.Driver
-      jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
-      username: sa
-      password: 777
+    # 各数据源独立配置
+    sources:
+      # 主数据源配置
+      ora:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: OraPool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+
+      # ora-slave数据源配置（ora的从节点）
+      ora-slave:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: OraSlavePool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+
+      # rlcms_base数据源配置（原secondary）
+      rlcms-base:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/rlcms_base;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: RlcmsBasePool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # rlcms_pv1数据源配置（原tertiary）
+      rlcms-pv1:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/rlcms_pv1;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: RlcmsPv1Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # rlcms_pv2数据源配置（原fourth）
+      rlcms-pv2:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/rlcms_pv2;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: RlcmsPv2Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # rlcms_pv3数据源配置（原fifth）
+      rlcms-pv3:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/rlcms_pv3;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: RlcmsPv3Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # bscopy_pv1数据源配置（原sixth）
+      bscopy-pv1:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/bscopy_pv1;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: BscopyPv1Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # bscopy_pv2数据源配置（原seventh）
+      bscopy-pv2:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: BscopyPv2Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 32
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 8
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
+      
+      # bscopy_pv3数据源配置（原eighth）
+      bscopy-pv3:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        pool-name: BscopyPv3Pool
+        # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
+        maximum-pool-size: 2
+        # 最小空闲连接数 生产环境建议设置为maximum-pool-size的20%-50%，避免频繁创建连接
+        minimum-idle: 1
+        # 获取连接超时时间（毫秒）
+        connection-timeout: 30000
+        # 空闲连接存活时间（毫秒）
+        idle-timeout: 600000
+        # 连接最大存活周期（毫秒）
+        max-lifetime: 1800000
+        #作用：连接泄漏检测阈值（毫秒） 推荐值：生产环境设置5000-10000（5-10秒），测试环境可设为2000
+        leak-detection-threshold: 10000
 
 # 日志配置
 logging:
@@ -98,7 +191,7 @@ logging:
     root: info
     org.springframework.jdbc.core: info
     io.github.luolong47.dbchecker: info
-    com.zaxxer.hikari: warn
+    com.zaxxer.hikari: info
     # 日志文件配置
   file:
     name: ./logs/db-checker.log

@@ -1,74 +1,90 @@
-# 数据库校验工具 (DB-Checker)
+# 多数据源查询测试工具
 
-这个工具用于比对多个数据库中表的金额字段SUM值，支持多数据源配置和各种运行模式。
+这个应用程序演示了如何使用Spring Boot配置和管理多个HikariCP数据源。
 
 ## 功能特点
 
-- 支持多数据源配置
-- 支持断点续跑
-- 支持指定表和schema的过滤
-- 支持自定义SQL提示和WHERE条件
-- 支持多种数据比对公式
-- 结果导出为CSV格式
+1. 支持8个独立配置的H2数据库数据源
+2. 全局Hikari配置和数据源特定配置
+3. 基于JdbcTemplate的数据库操作
+4. 动态数据源管理和切换
+5. 数据源健康检查
 
-## 项目流程图
+## 运行说明
 
-```mermaid
-graph TD
-    A[应用启动] --> B[加载配置]
-    B --> C[初始化数据库服务]
-    C --> D{检查运行模式}
-    
-    D -->|新运行| E[清空表信息]
-    D -->|断点续跑| F[恢复表信息]
-    
-    E --> G[获取要处理的数据库]
-    F --> G
-    
-    G --> H[并发获取表信息]
-    H --> I[处理所有数据库表信息]
-    I --> J[保存断点状态]
-    J --> K[创建导出目录]
-    K --> L[准备输出数据]
-    L --> M[执行公式计算]
-    M --> N[导出CSV结果]
-    N --> O[结束运行]
-    
-    subgraph 表信息获取流程
-    H1[获取表元数据] --> H2[获取金额字段]
-    H2 --> H3[应用SQL提示]
-    H3 --> H4[应用WHERE条件]
-    H4 --> H5[执行COUNT和SUM查询]
-    H5 --> H6[返回表信息]
-    end
-    
-    subgraph 公式计算流程
-    M1[读取表金额数据] --> M2[应用公式规则]
-    M2 --> M3[判断公式结果]
-    M3 --> M4[生成比对结果]
-    end
+### 1. 启动应用程序
+
+```bash
+./mvnw spring-boot:run
 ```
 
-## 项目结构
+### 2. 运行内置测试
 
-- `DbCheckerApplication.java`: 应用程序入口
-- `service/`: 各种服务实现
-    - `DatabaseService.java`: 数据库操作核心服务
-    - `TableMetadataService.java`: 表元数据服务
-    - `FormulaCalculationService.java`: 公式计算服务
-- `config/`: 配置相关
-    - `DbConfig.java`: 数据库配置
-    - `DatabaseInitScriptsProperties.java`: 初始化脚本配置
-- `manager/`: 管理器
-    - `TableInfoManager.java`: 表信息管理
-    - `ResumeStateManager.java`: 断点续跑状态管理
-- `model/`: 数据模型
-- `util/`: 实用工具
-    - `CsvExportUtil.java`: CSV导出工具
+在`application.yml`中设置:
 
-## 使用方法
+```yaml
+db:
+  test:
+    enabled: true
+```
 
-1. 配置`application.properties`中的数据源
-2. 配置需要比对的表和规则
-3. 运行应用执行比对
-4. 查看导出的CSV结果文件 
+或通过命令行启用测试:
+
+```bash
+./mvnw spring-boot:run -Ddb.test.enabled=true
+```
+
+### 3. 执行自定义SQL
+
+```bash
+./mvnw spring-boot:run -Ddb.custom-execute.enabled=true -Ddb.custom-execute.sql="SELECT * FROM USERS WHERE id > 10"
+```
+
+指定数据源:
+
+```bash
+./mvnw spring-boot:run -Ddb.custom-execute.enabled=true -Ddb.custom-execute.datasources=ora,rlcms-pv1 -Ddb.custom-execute.sql="SELECT COUNT(*) FROM ORDERS"
+```
+
+## 配置说明
+
+### 数据源配置
+
+配置文件结构采用层次化设计，全局Hikari配置位于`spring.datasource.hikari`节点，各数据源配置位于`spring.datasource.sources`节点下：
+
+```yaml
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 32
+      minimum-idle: 8
+      # ...其他Hikari全局配置
+    
+    sources:
+      ora:
+        driver-class-name: org.h2.Driver
+        jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
+        username: sa
+        password:
+        hikari:
+          pool-name: OraPool
+          
+      # ...其他数据源配置
+```
+
+数据源特定的Hikari配置会覆盖全局配置，便于针对不同数据源特点优化连接池参数。
+
+### 测试配置
+
+在`application.yml`中配置测试相关参数:
+
+```yaml
+db:
+  test:
+    enabled: true  # 启用默认测试
+  
+  custom-execute:
+    enabled: false # 是否启用自定义SQL执行
+    sql: "SELECT * FROM USERS LIMIT 10"  # 默认执行SQL
+    datasources: ora,rlcms-base  # 默认数据源列表
+``` 
