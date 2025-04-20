@@ -1,13 +1,9 @@
 package io.github.luolong47.dbchecker.manager;
 
 import cn.hutool.core.collection.ListUtil;
-import cn.hutool.core.io.IoUtil;
-import cn.hutool.core.text.csv.CsvUtil;
-import cn.hutool.core.text.csv.CsvWriter;
 import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.*;
-import io.github.luolong47.dbchecker.service.DatabaseInitService;
 import io.github.luolong47.dbchecker.service.TableService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +13,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-import java.io.FileWriter;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -47,8 +42,6 @@ public class TableManager {
     private Dbconfig dbconfig;
     @Autowired
     private DynamicJdbcTemplateManager dynamicJdbcTemplateManager;
-    @Autowired
-    private DatabaseInitService databaseInitService;
     @Autowired
     private CsvExportManager csvExportManager;
 
@@ -174,27 +167,21 @@ public class TableManager {
         log.info("开始初始化 WHERE 条件映射...");
 
         // 转换结构：从 db->(tableName->whereStr) 到 tableName->(db->whereStr)
-        whereConfig.forEach((db, tableWhereMap) -> {
-            tableWhereMap.forEach((tableName, whereStr) -> {
-                // 表名转换为大写，保持一致性
-                String tableNameUpper = tableName.toUpperCase();
+        whereConfig.forEach((db, tableWhereMap) -> tableWhereMap.forEach((tableName, whereStr) -> {
+            // 表名转换为大写，保持一致性
+            String tableNameUpper = tableName.toUpperCase();
 
-                // 获取或创建该表的 db->whereStr 映射
-                Map<String, String> dbToWhereMap = tb2where.computeIfAbsent(
-                    tableNameUpper, k -> new ConcurrentHashMap<>());
+            // 获取或创建该表的 db->whereStr 映射
+            Map<String, String> dbToWhereMap = tb2where.computeIfAbsent(
+                tableNameUpper, k -> new ConcurrentHashMap<>());
 
-                // 添加该数据库的 WHERE 条件
-                dbToWhereMap.put(db, whereStr);
+            // 添加该数据库的 WHERE 条件
+            dbToWhereMap.put(db, whereStr);
 
-                log.info("设置表 [{}] 在数据库 [{}] 的 WHERE 条件: {}", tableNameUpper, db, whereStr);
-            });
-        });
+            log.info("设置表 [{}] 在数据库 [{}] 的 WHERE 条件: {}", tableNameUpper, db, whereStr);
+        }));
 
         log.info("WHERE 条件映射初始化完成，共设置 {} 个表的条件", tb2where.size());
-    }
-
-    private void initTb2Schema() {
-        // 已在字段声明时初始化
     }
 
     private void initTb2SumCols() {
@@ -273,7 +260,7 @@ public class TableManager {
 
         // 处理_COUNT_NO_WHERE和_COUNT
         BigDecimal countNoWhere = null;
-        Map<String, BigDecimal> countNoWhereResult = null;
+        Map<String, BigDecimal> countNoWhereResult;
 
         // 查找_COUNT_NO_WHERE的值
         if (cols.contains("_COUNT_NO_WHERE")) {
@@ -424,7 +411,6 @@ public class TableManager {
                                 log.debug("为表 [{}] 添加SQL提示: {}", tableName, sqlHint);
                             }
 
-                            List<String> nonCountCols = new ArrayList<>();
                             boolean hasCountCol = false;
                             boolean hasCountNoWhereCol = false;
 
@@ -458,7 +444,6 @@ public class TableManager {
                                         sqlBuilder.append("SUM(").append(sumCol).append(") AS ")
                                             .append(sumCol).append(", ");
                                     }
-                                    nonCountCols.add(sumCol);
                                 }
                             }
 

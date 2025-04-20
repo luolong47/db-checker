@@ -2,6 +2,7 @@ package io.github.luolong47.dbchecker.manager;
 
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.text.csv.CsvUtil;
+import cn.hutool.core.text.csv.CsvWriteConfig;
 import cn.hutool.core.text.csv.CsvWriter;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.TableCsvResult;
@@ -72,7 +73,7 @@ public class CsvExportManager {
             log.info("初始化CSV导出，文件路径: {}", csvFilePath);
 
             // 创建CSV写入器 - 配置为支持Bean写入，指定头部别名
-            cn.hutool.core.text.csv.CsvWriteConfig config = new cn.hutool.core.text.csv.CsvWriteConfig();
+            CsvWriteConfig config = new CsvWriteConfig();
             config.setHeaderAlias(createHeaderAlias()); // 设置表头别名映射
 
             // 使用FileWriter创建CsvWriter
