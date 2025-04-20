@@ -44,6 +44,8 @@ public class TableManager {
     private DynamicJdbcTemplateManager dynamicJdbcTemplateManager;
     @Autowired
     private CsvExportManager csvExportManager;
+    @Autowired
+    private ResumeStateManager resumeStateManager;
 
     @PostConstruct
     public void init() {
@@ -66,6 +68,10 @@ public class TableManager {
                 .map(String::trim)
                 .collect(Collectors.toList()))
             .orElse(Collections.emptyList());
+
+        // 初始化断点续跑状态管理器
+        boolean isResumeMode = resumeStateManager.init();
+        log.info("断点续跑状态管理器初始化完成，是否断点续跑模式: {}", isResumeMode);
 
         // 初始化从节点查询表列表
         initSlaveQueryTbs();
@@ -366,151 +372,162 @@ public class TableManager {
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         tb2dbs.forEach((tableName, dbList) -> {
+            // 检查表是否已经在断点续跑中完成处理
+            if (resumeStateManager.isTableCompleted(tableName)) {
+                log.info("表 [{}] 已在之前的运行中完成处理，跳过", tableName);
+                return;
+            }
+
             List<String> sumCols = tb2sumCols.get(tableName);
             if (sumCols == null || sumCols.isEmpty()) {
-                log.info("表 [{}] 没有需要求和的列，跳过", tableName);
+                log.info("表 [{}] 没有需要求和的列，标记为已完成并跳过", tableName);
+                resumeStateManager.markTableCompleted(tableName, totalTables);
                 return;
             }
 
             // 异步处理每个表
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                TableInfo tableInfo = tableInfoMap.get(tableName);
-                Map<String, Map<String, BigDecimal>> sumResult = new ConcurrentHashMap<>();
+                try {
+                    TableInfo tableInfo = tableInfoMap.get(tableName);
+                    Map<String, Map<String, BigDecimal>> sumResult = new ConcurrentHashMap<>();
 
-                // 为每列初始化结果Map
-                for (String sumCol : sumCols) {
-                    sumResult.put(sumCol, new ConcurrentHashMap<>());
-                }
-
-                // 创建数据库查询的CompletableFuture列表
-                List<CompletableFuture<Void>> dbFutures = new ArrayList<>();
-
-                // 为每个数据库创建异步查询任务
-                for (String db : dbList) {
-                    // 检查是否需要从从节点查询
-                    String actualDb = db;
-                    if ("ora".equals(db) && slaveQueryTbs.contains(tableName)) {
-                        actualDb = "ora-slave";
-                        log.info("表 [{}] 将从从节点 [{}] 查询", tableName, actualDb);
+                    // 为每列初始化结果Map
+                    for (String sumCol : sumCols) {
+                        sumResult.put(sumCol, new ConcurrentHashMap<>());
                     }
 
-                    final String finalDb = db; // 原始数据库名，用于结果存储
-                    final String finalActualDb = actualDb; // 实际查询的数据库名
+                    // 创建数据库查询的CompletableFuture列表
+                    List<CompletableFuture<Void>> dbFutures = new ArrayList<>();
 
-                    CompletableFuture<Void> dbFuture = CompletableFuture.runAsync(() -> {
-                        try {
-                            JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(finalActualDb);
-
-                            // 构建合并的查询语句
-                            StringBuilder sqlBuilder = new StringBuilder("SELECT ");
-
-                            // 检查该表是否有SQL提示，如果有则添加到查询开头
-                            String sqlHint = tb2hint.get(tableName);
-                            if (StrUtil.isNotEmpty(sqlHint)) {
-                                sqlBuilder.append(sqlHint).append(" ");
-                                log.debug("为表 [{}] 添加SQL提示: {}", tableName, sqlHint);
-                            }
-
-                            boolean hasCountCol = false;
-                            boolean hasCountNoWhereCol = false;
-
-                            // 检查是否存在WHERE条件
-                            Map<String, String> dbWhereMap = tb2where.get(tableName);
-                            String whereCondition = dbWhereMap != null ? dbWhereMap.get(finalDb) : null;
-                            boolean hasWhereCondition = whereCondition != null && !whereCondition.trim().isEmpty();
-
-                            // 收集所有需要SUM的列和COUNT
-                            for (String sumCol : sumCols) {
-                                if ("_COUNT_NO_WHERE".equals(sumCol)) {
-                                    // 总是计算不带WHERE的COUNT
-                                    sqlBuilder.append("COUNT(*) AS _COUNT_NO_WHERE, ");
-                                    hasCountNoWhereCol = true;
-                                } else if ("_COUNT".equals(sumCol)) {
-                                    // 根据是否有WHERE条件决定如何计算COUNT
-                                    if (hasWhereCondition) {
-                                        sqlBuilder.append("SUM(CASE WHEN ").append(whereCondition)
-                                            .append(" THEN 1 ELSE 0 END) AS _COUNT, ");
-                                    } else {
-                                        sqlBuilder.append("COUNT(*) AS _COUNT, ");
-                                    }
-                                    hasCountCol = true;
-                                } else {
-                                    // 根据是否有WHERE条件决定如何计算SUM
-                                    if (hasWhereCondition) {
-                                        sqlBuilder.append("SUM(CASE WHEN ").append(whereCondition)
-                                            .append(" THEN ").append(sumCol).append(" ELSE 0 END) AS ")
-                                            .append(sumCol).append(", ");
-                                    } else {
-                                        sqlBuilder.append("SUM(").append(sumCol).append(") AS ")
-                                            .append(sumCol).append(", ");
-                                    }
-                                }
-                            }
-
-                            // 移除最后一个逗号和空格
-                            if (!sumCols.isEmpty()) {
-                                sqlBuilder.setLength(sqlBuilder.length() - 2);
-                            }
-
-                            // 直接使用表名，不加schema前缀
-                            sqlBuilder.append(" FROM ").append(tableName);
-
-                            String sql = sqlBuilder.toString();
-                            log.debug("执行合并统计SQL: {}, 数据库: {} (实际查询: {})", sql, finalDb, finalActualDb);
-
-                            // 将外部变量复制为final变量，以便lambda表达式中使用
-                            final boolean finalHasCountCol = hasCountCol;
-                            final boolean finalHasCountNoWhereCol = hasCountNoWhereCol;
-
-                            // 执行查询并处理结果
-                            jdbcTemplate.query(sql, rs -> {
-                                // 处理所有SUM列的结果
-                                for (String sumCol : sumCols) {
-                                    BigDecimal value;
-                                    if ("_COUNT".equals(sumCol) && finalHasCountCol) {
-                                        value = new BigDecimal(rs.getLong("_COUNT"));
-                                    } else if ("_COUNT_NO_WHERE".equals(sumCol) && finalHasCountNoWhereCol) {
-                                        value = new BigDecimal(rs.getLong("_COUNT_NO_WHERE"));
-                                    } else {
-                                        value = rs.getBigDecimal(sumCol);
-                                    }
-
-                                    // 处理NULL值
-                                    if (value == null) {
-                                        value = BigDecimal.ZERO;
-                                    }
-
-                                    // 保存结果 - 注意：结果存储到原始数据库名下，而不是实际查询的数据库
-                                    sumResult.get(sumCol).put(finalDb, value);
-                                    log.debug("表 [{}] 列 [{}] 在数据库 [{}] 的求和结果: {} (实际查询: {})",
-                                        tableName, sumCol, finalDb, value, finalActualDb);
-                                }
-                            });
-                        } catch (Exception e) {
-                            log.error("计算表 [{}] 在数据库 [{}] 的列求和时发生错误 (实际查询: {}): {}",
-                                tableName, finalDb, finalActualDb, e.getMessage(), e);
-
-                            // 出错时为所有列设为0
-                            for (String sumCol : sumCols) {
-                                sumResult.get(sumCol).put(finalDb, BigDecimal.ZERO);
-                            }
+                    // 为每个数据库创建异步查询任务
+                    for (String db : dbList) {
+                        // 检查是否需要从从节点查询
+                        String actualDb = db;
+                        if ("ora".equals(db) && slaveQueryTbs.contains(tableName)) {
+                            actualDb = "ora-slave";
+                            log.info("表 [{}] 将从从节点 [{}] 查询", tableName, actualDb);
                         }
-                    });
 
-                    dbFutures.add(dbFuture);
+                        final String finalDb = db; // 原始数据库名，用于结果存储
+                        final String finalActualDb = actualDb; // 实际查询的数据库名
+
+                        CompletableFuture<Void> dbFuture = CompletableFuture.runAsync(() -> {
+                            try {
+                                JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(finalActualDb);
+
+                                // 构建合并的查询语句
+                                StringBuilder sqlBuilder = new StringBuilder("SELECT ");
+
+                                // 检查该表是否有SQL提示，如果有则添加到查询开头
+                                String sqlHint = tb2hint.get(tableName);
+                                if (StrUtil.isNotEmpty(sqlHint)) {
+                                    sqlBuilder.append(sqlHint).append(" ");
+                                    log.debug("为表 [{}] 添加SQL提示: {}", tableName, sqlHint);
+                                }
+
+                                boolean hasCountCol = false;
+                                boolean hasCountNoWhereCol = false;
+
+                                // 检查是否存在WHERE条件
+                                Map<String, String> dbWhereMap = tb2where.get(tableName);
+                                String whereCondition = dbWhereMap != null ? dbWhereMap.get(finalDb) : null;
+                                boolean hasWhereCondition = whereCondition != null && !whereCondition.trim().isEmpty();
+
+                                // 收集所有需要SUM的列和COUNT
+                                for (String sumCol : sumCols) {
+                                    if ("_COUNT_NO_WHERE".equals(sumCol)) {
+                                        // 总是计算不带WHERE的COUNT
+                                        sqlBuilder.append("COUNT(*) AS _COUNT_NO_WHERE, ");
+                                        hasCountNoWhereCol = true;
+                                    } else if ("_COUNT".equals(sumCol)) {
+                                        // 根据是否有WHERE条件决定如何计算COUNT
+                                        if (hasWhereCondition) {
+                                            sqlBuilder.append("SUM(CASE WHEN ").append(whereCondition)
+                                                .append(" THEN 1 ELSE 0 END) AS _COUNT, ");
+                                        } else {
+                                            sqlBuilder.append("COUNT(*) AS _COUNT, ");
+                                        }
+                                        hasCountCol = true;
+                                    } else {
+                                        // 根据是否有WHERE条件决定如何计算SUM
+                                        if (hasWhereCondition) {
+                                            sqlBuilder.append("SUM(CASE WHEN ").append(whereCondition)
+                                                .append(" THEN ").append(sumCol).append(" ELSE 0 END) AS ")
+                                                .append(sumCol).append(", ");
+                                        } else {
+                                            sqlBuilder.append("SUM(").append(sumCol).append(") AS ")
+                                                .append(sumCol).append(", ");
+                                        }
+                                    }
+                                }
+
+                                // 移除最后一个逗号和空格
+                                if (!sumCols.isEmpty()) {
+                                    sqlBuilder.setLength(sqlBuilder.length() - 2);
+                                }
+
+                                // 直接使用表名，不加schema前缀
+                                sqlBuilder.append(" FROM ").append(tableName);
+
+                                String sql = sqlBuilder.toString();
+                                log.debug("执行合并统计SQL: {}, 数据库: {} (实际查询: {})", sql, finalDb, finalActualDb);
+
+                                // 将外部变量复制为final变量，以便lambda表达式中使用
+                                final boolean finalHasCountCol = hasCountCol;
+                                final boolean finalHasCountNoWhereCol = hasCountNoWhereCol;
+
+                                // 执行查询并处理结果
+                                jdbcTemplate.query(sql, rs -> {
+                                    // 处理所有SUM列的结果
+                                    for (String sumCol : sumCols) {
+                                        BigDecimal value;
+                                        if ("_COUNT".equals(sumCol) && finalHasCountCol) {
+                                            value = new BigDecimal(rs.getLong("_COUNT"));
+                                        } else if ("_COUNT_NO_WHERE".equals(sumCol) && finalHasCountNoWhereCol) {
+                                            value = new BigDecimal(rs.getLong("_COUNT_NO_WHERE"));
+                                        } else {
+                                            value = rs.getBigDecimal(sumCol);
+                                        }
+
+                                        // 处理NULL值
+                                        if (value == null) {
+                                            value = BigDecimal.ZERO;
+                                        }
+
+                                        // 保存结果 - 注意：结果存储到原始数据库名下，而不是实际查询的数据库
+                                        sumResult.get(sumCol).put(finalDb, value);
+                                        log.debug("表 [{}] 列 [{}] 在数据库 [{}] 的求和结果: {} (实际查询: {})",
+                                            tableName, sumCol, finalDb, value, finalActualDb);
+                                    }
+                                });
+                            } catch (Exception e) {
+                                log.error("计算表 [{}] 在数据库 [{}] 的列求和时发生错误 (实际查询: {}): {}",
+                                    tableName, finalDb, finalActualDb, e.getMessage(), e);
+
+                                // 出错时为所有列设为0
+                                for (String sumCol : sumCols) {
+                                    sumResult.get(sumCol).put(finalDb, BigDecimal.ZERO);
+                                }
+                            }
+                        });
+
+                        dbFutures.add(dbFuture);
+                    }
+
+                    // 等待所有数据库查询完成
+                    CompletableFuture.allOf(dbFutures.toArray(new CompletableFuture[0]))
+                        .exceptionally(e -> {
+                            log.error("表 [{}] 的数据库查询任务中有错误发生: {}", tableName, e.getMessage(), e);
+                            return null;
+                        })
+                        .join();
+
+                    // 设置结果
+                    tableInfo.setSumResult(sumResult);
+                    log.info("表 [{}] 的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
+                } catch (Exception e) {
+                    log.error("表 [{}] 的求和处理过程中发生错误: {}", tableName, e.getMessage(), e);
                 }
-
-                // 等待所有数据库查询完成
-                CompletableFuture.allOf(dbFutures.toArray(new CompletableFuture[0]))
-                    .exceptionally(e -> {
-                        log.error("表 [{}] 的数据库查询任务中有错误发生: {}", tableName, e.getMessage(), e);
-                        return null;
-                    })
-                    .join();
-
-                // 设置结果
-                tableInfo.setSumResult(sumResult);
-                log.info("表 [{}] 的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
             }).thenAcceptAsync(unused -> {
                 // 将TableInfo转换为TableCsvResult并导出到CSV
                 try {
@@ -533,6 +550,10 @@ public class TableManager {
 
                     // 保存结果到内存映射
                     tableCsvResultMap.put(tableName, results);
+                    
+                    // 标记该表已处理完成，并保存状态
+                    resumeStateManager.markTableCompleted(tableName, totalTables);
+                    log.info("表 [{}] 的处理已完成并保存状态", tableName);
                 } catch (Exception e) {
                     log.error("处理表 [{}] 的数据时发生错误: {}", tableName, e.getMessage(), e);
                 }
@@ -550,6 +571,11 @@ public class TableManager {
 
         // 关闭CSV写入器
         csvExportManager.closeWriter();
+        
+        // 记录总结信息
+        ResumeState state = resumeStateManager.getCurrentState();
+        log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表",
+                state.getTotalTables(), state.getCompletedCount());
     }
 
     private void initTb2Formula() {

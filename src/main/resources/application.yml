@@ -150,7 +150,7 @@ spring:
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
         username: sa
-        password: xxx
+        password:
         pool-name: BscopyPv2Pool
         # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
         maximum-pool-size: 32
