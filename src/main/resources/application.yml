@@ -261,16 +261,51 @@ db:
     # 金额字段识别的最小小数位数
     minDecimalDigits: 2
   pool:
-    defalut: 8
-    map:
-      ora: 8
-      rlcms_base: 8
-      rlcms_pv1: 8
-      rlcms_pv2: 8
-      rlcms_pv3: 8
-      bscopy_pv1: 8
-      bscopy_pv2: 8
-      bscopy_pv3: 8
+    # 表处理线程池配置
+    table:
+      # 核心线程数，默认使用处理器核心数
+      core-size: 0
+      # 最大线程数，0表示与核心线程数相同
+      max-size: 0
+      # 队列容量
+      queue-capacity: 5000
+      # 线程空闲时间(毫秒)
+      keep-alive-time: 0
+      # 线程命名前缀
+      thread-name-prefix: table-executor-
+      # 拒绝策略: ABORT, CALLER_RUNS, DISCARD, DISCARD_OLDEST
+      rejection-policy: CALLER_RUNS
+    
+    # 数据库查询线程池配置
+    db-query:
+      # 核心线程数，默认使用处理器核心数*2
+      core-size: 0
+      # 最大线程数，0表示与核心线程数相同
+      max-size: 0
+      # 队列容量
+      queue-capacity: 10000
+      # 线程空闲时间(毫秒)
+      keep-alive-time: 0
+      # 线程命名前缀
+      thread-name-prefix: db-query-executor-
+      # 拒绝策略: ABORT, CALLER_RUNS（使用的 CALLER_RUNS 策略在队列满时会让调用线程自己执行任务，这可以防止任务丢失）, DISCARD, DISCARD_OLDEST
+      rejection-policy: CALLER_RUNS
+    
+    # CSV导出线程池配置
+    csv-export:
+      # 核心线程数，默认为4
+      core-size: 4
+      # 最大线程数，0表示与核心线程数相同
+      max-size: 4
+      # 队列容量
+      queue-capacity: 5000
+      # 线程空闲时间(毫秒)
+      keep-alive-time: 0
+      # 线程命名前缀
+      thread-name-prefix: csv-export-executor-
+      # 拒绝策略: ABORT, CALLER_RUNS, DISCARD, DISCARD_OLDEST
+      rejection-policy: CALLER_RUNS
+    
   init:
     enable: false
     scripts:

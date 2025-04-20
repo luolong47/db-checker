@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -46,6 +47,16 @@ public class TableManager {
     private CsvExportManager csvExportManager;
     @Autowired
     private ResumeStateManager resumeStateManager;
+    
+    // 注入不同用途的线程池
+    @Autowired
+    private ExecutorService tableExecutor;
+    
+    @Autowired
+    private ExecutorService dbQueryExecutor;
+    
+    @Autowired
+    private ExecutorService csvExportExecutor;
 
     @PostConstruct
     public void init() {
@@ -385,7 +396,7 @@ public class TableManager {
                 return;
             }
 
-            // 异步处理每个表
+            // 异步处理每个表 - 使用表处理专用线程池
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
                     TableInfo tableInfo = tableInfoMap.get(tableName);
@@ -411,6 +422,7 @@ public class TableManager {
                         final String finalDb = db; // 原始数据库名，用于结果存储
                         final String finalActualDb = actualDb; // 实际查询的数据库名
 
+                        // 使用数据库查询专用线程池处理查询任务
                         CompletableFuture<Void> dbFuture = CompletableFuture.runAsync(() -> {
                             try {
                                 JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(finalActualDb);
@@ -509,7 +521,7 @@ public class TableManager {
                                     sumResult.get(sumCol).put(finalDb, BigDecimal.ZERO);
                                 }
                             }
-                        });
+                        }, dbQueryExecutor); // 使用数据库查询专用线程池
 
                         dbFutures.add(dbFuture);
                     }
@@ -528,7 +540,8 @@ public class TableManager {
                 } catch (Exception e) {
                     log.error("表 [{}] 的求和处理过程中发生错误: {}", tableName, e.getMessage(), e);
                 }
-            }).thenAcceptAsync(unused -> {
+            }, tableExecutor) // 使用表处理专用线程池
+            .thenAcceptAsync(unused -> { // 使用CSV导出专用线程池
                 // 将TableInfo转换为TableCsvResult并导出到CSV
                 try {
                     TableInfo tableInfo = tableInfoMap.get(tableName);
@@ -557,7 +570,7 @@ public class TableManager {
                 } catch (Exception e) {
                     log.error("处理表 [{}] 的数据时发生错误: {}", tableName, e.getMessage(), e);
                 }
-            });
+            }, csvExportExecutor); // 使用CSV导出专用线程池
 
             futures.add(future);
         });
@@ -576,6 +589,38 @@ public class TableManager {
         ResumeState state = resumeStateManager.getCurrentState();
         log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表",
                 state.getTotalTables(), state.getCompletedCount());
+                
+        // 任务全部完成后，关闭所有线程池，避免程序不退出
+        shutdownExecutors();
+    }
+
+    /**
+     * 关闭所有线程池，允许程序正常退出
+     */
+    private void shutdownExecutors() {
+        log.info("所有数据处理任务已完成，开始关闭线程池...");
+        
+        try {
+            // 直接关闭线程池
+            if (tableExecutor instanceof ExecutorService) {
+                log.info("关闭表处理线程池...");
+                tableExecutor.shutdown();
+            }
+            
+            if (dbQueryExecutor instanceof ExecutorService) {
+                log.info("关闭数据库查询线程池...");
+                dbQueryExecutor.shutdown();
+            }
+            
+            if (csvExportExecutor instanceof ExecutorService) {
+                log.info("关闭CSV导出线程池...");
+                csvExportExecutor.shutdown();
+            }
+            
+            log.info("线程池已关闭");
+        } catch (Exception e) {
+            log.error("关闭线程池时发生错误: {}", e.getMessage(), e);
+        }
     }
 
     private void initTb2Formula() {
@@ -637,13 +682,14 @@ public class TableManager {
                     log.error("查询数据库 [{}] 中的表信息失败: {}", db, e.getMessage(), e);
                     return ListUtil.<TableEnt>empty();
                 }
-            }).thenAcceptAsync(tableQueryed ->
+            }, dbQueryExecutor) // 使用数据库查询专用线程池
+            .thenAcceptAsync(tableQueryed ->
                 tableQueryed.forEach(tableEnt -> {
                         tb2dbs.computeIfAbsent(tableEnt.getTableName(), k -> new CopyOnWriteArrayList<>()).add(db);
                         // 将表的schema信息保存到tb2Schema映射中
                         tb2Schema.putIfAbsent(tableEnt.getTableName(), tableEnt.getSchemaName());
                     }
-                )
+                ), tableExecutor // 使用表处理专用线程池处理数据收集
             );
 
             futures.add(future);
