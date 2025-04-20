@@ -4,6 +4,6 @@ import lombok.Data;
 
 @Data
 public class TableEnt {
-    String tableName;
-    String schemaName;
+    private String tableName;
+    private String schemaName;
 }

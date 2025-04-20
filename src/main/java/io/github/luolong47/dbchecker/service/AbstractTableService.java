@@ -1,15 +1,18 @@
 package io.github.luolong47.dbchecker.service;
 
-import cn.hutool.extra.spring.SpringUtil;
-import com.zaxxer.hikari.HikariDataSource;
-import io.github.luolong47.dbchecker.entity.TableEnt;
-import io.github.luolong47.dbchecker.manager.DynamicDataSourceManager;
 import org.springframework.jdbc.core.JdbcTemplate;
+import lombok.extern.slf4j.Slf4j;
 
-import javax.sql.DataSource;
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 public abstract class AbstractTableService implements TableService {
 
+    @Override
+    public Map<String, List<String>> getDecimalColumnsForTables(JdbcTemplate jdbcTemplate, String schema, List<String> tables, int minDecimalDigits) {
+        log.warn("getDecimalColumnsForTables未实现");
+        return new ConcurrentHashMap<>();
+    }
 }

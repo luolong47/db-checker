@@ -23,6 +23,7 @@ public class Dbconfig {
     private SlaveQuery slaveQuery;
     private Sum sum;
     private Pool pool;
+    private Init init;
 
     @Data
     public static class Export {
@@ -82,5 +83,11 @@ public class Dbconfig {
     public static class Pool {
         private int defalut;
         private Map<String, Integer> map;
+    }
+    
+    @Data
+    public static class Init {
+        private boolean enable;
+        private Map<String, List<String>> scripts;
     }
 }

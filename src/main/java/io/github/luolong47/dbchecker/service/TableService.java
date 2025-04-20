@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
 import java.util.List;
+import java.util.Map;
 
 public interface TableService {
 
@@ -31,4 +32,15 @@ public interface TableService {
     }
 
     List<TableEnt> getTables(JdbcTemplate jdbcTemplate, List<String> schemas, List<String> tables);
+
+    /**
+     * 批量获取多个表的金额字段
+     * 
+     * @param jdbcTemplate     JDBC模板
+     * @param schema           模式名
+     * @param tables           表名列表
+     * @param minDecimalDigits 最小小数位数
+     * @return 表名到金额字段列表的映射
+     */
+    Map<String, List<String>> getDecimalColumnsForTables(JdbcTemplate jdbcTemplate, String schema, List<String> tables, int minDecimalDigits);
 }

@@ -81,7 +81,7 @@
             </plugin>
             
             <!-- 排除yml文件 -->
-            <plugin>
+<!--            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
@@ -90,10 +90,10 @@
                         <exclude>**/*.sql</exclude>
                     </excludes>
                 </configuration>
-            </plugin>
+            </plugin>-->
             
             <!-- 复制yml文件到jar同级目录 -->
-            <plugin>
+<!--            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
                 <executions>
@@ -116,7 +116,7 @@
                         </configuration>
                     </execution>
                 </executions>
-            </plugin>
+            </plugin>-->
         </plugins>
     </build>
 </project>

@@ -193,6 +193,7 @@ logging:
     io.github.luolong47.dbchecker: info
     org.springframework.jdbc.core.JdbcTemplate: debug
     com.zaxxer.hikari: info
+    com.zaxxer.hikari.pool.HikariPool: debug
     # 日志文件配置
   file:
     name: ./logs/db-checker.log
@@ -203,7 +204,7 @@ logging:
 # 数据库表排除与包含配置
 db:
   export:
-    # 导出Excel文件的目录，默认为当前目录
+    # 导出CSV文件的目录，默认为当前目录
     directory: ./export
   include:
     # 要包含的schema列表，使用逗号分隔
@@ -258,7 +259,7 @@ db:
     # 是否启用求和
     enable: true
     # 金额字段识别的最小小数位数
-    minDecimalDigits: 3
+    minDecimalDigits: 2
   pool:
     defalut: 8
     map:
@@ -270,3 +271,30 @@ db:
       bscopy_pv1: 8
       bscopy_pv2: 8
       bscopy_pv3: 8
+  init:
+    enable: true
+    scripts:
+      ora:
+        - db/schema-ora.sql
+        - db/data-ora.sql
+      rlcms-base:
+        - db/schema-rlcms_base.sql
+        - db/data-rlcms_base.sql
+      rlcms-pv1:
+        - db/schema-rlcms_pv1.sql
+        - db/data-rlcms_pv1.sql
+      rlcms-pv2:
+        - db/schema-rlcms_pv2.sql
+        - db/data-rlcms_pv2.sql
+      rlcms-pv3:
+        - db/schema-rlcms_pv3.sql
+        - db/data-rlcms_pv3.sql
+      bscopy-pv1:
+        - db/schema-bscopy_pv1.sql
+        - db/data-bscopy_pv1.sql
+      bscopy-pv2:
+        - db/schema-bscopy_pv2.sql
+        - db/data-bscopy_pv2.sql
+      bscopy-pv3:
+        - db/schema-bscopy_pv3.sql
+        - db/data-bscopy_pv3.sql
