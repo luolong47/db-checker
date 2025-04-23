@@ -19,15 +19,13 @@ public class GaussDBTableService extends AbstractTableService {
     @Override
     public List<TableEnt> getTables(JdbcTemplate jdbcTemplate, List<String> schemas, List<String> tables) {
         // 将列表转换为IN子句的形式
-        String schemasStr = schemas.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
-        String tablesStr = tables.stream().map(t -> "'" + t + "'").collect(Collectors.joining(","));
+        String schemasStr = schemas.stream().map(s -> "'" + s.toLowerCase() + "'").collect(Collectors.joining(","));
+        String tablesStr = tables.stream().map(t -> "'" + t.toLowerCase() + "'").collect(Collectors.joining(","));
 
-        String sql = "SELECT c.relname AS TABLE_NAME, n.nspname AS SCHEMA_NAME " +
-                     "FROM pg_class c " +
-                     "JOIN pg_namespace n ON n.oid = c.relnamespace " +
-                     "WHERE c.relkind = 'r' " +
-                     "AND n.nspname IN (" + schemasStr + ") " +
-                     "AND c.relname IN (" + tablesStr + ")";
+        String sql = "SELECT tablename AS TABLE_NAME, schemaname AS SCHEMA_NAME " +
+                     "FROM pg_tables " +
+                     "WHERE schemaname IN (" + schemasStr + ") " +
+                     "AND tablename IN (" + tablesStr + ")";
         
         log.info("执行SQL: {}", sql);
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
@@ -47,9 +45,10 @@ public class GaussDBTableService extends AbstractTableService {
         try {
             // 将表名列表转换为IN子句形式
             String tablesStr = tables.stream()
-                    .map(t -> "'" + t + "'")
+                    .map(t -> "'" + t.toLowerCase() + "'")
                     .collect(Collectors.joining(","));
-                    
+            schema = schema.toLowerCase();
+
             String sql = "SELECT table_name, column_name FROM information_schema.columns " +
                          "WHERE table_schema = ? " +
                          "AND table_name IN (" + tablesStr + ") " +
@@ -63,8 +62,8 @@ public class GaussDBTableService extends AbstractTableService {
             Map<String, List<String>> resultMap = new HashMap<>();
             
             jdbcTemplate.query(sql, (rs) -> {
-                String tableName = rs.getString("table_name");
-                String columnName = rs.getString("column_name");
+                String tableName = rs.getString("table_name").toUpperCase();
+                String columnName = rs.getString("column_name").toUpperCase();
                 
                 resultMap.computeIfAbsent(tableName, k -> new ArrayList<>()).add(columnName);
             }, schema, minDecimalDigits);

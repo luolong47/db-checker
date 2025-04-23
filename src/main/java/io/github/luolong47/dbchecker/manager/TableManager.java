@@ -449,15 +449,15 @@ public class TableManager {
                                 for (String sumCol : sumCols) {
                                     if ("_COUNT_NO_WHERE".equals(sumCol)) {
                                         // 总是计算不带WHERE的COUNT
-                                        sqlBuilder.append("COUNT(*) AS _COUNT_NO_WHERE, ");
+                                        sqlBuilder.append("COUNT(*) AS \"_COUNT_NO_WHERE\", ");
                                         hasCountNoWhereCol = true;
                                     } else if ("_COUNT".equals(sumCol)) {
                                         // 根据是否有WHERE条件决定如何计算COUNT
                                         if (hasWhereCondition) {
                                             sqlBuilder.append("SUM(CASE WHEN ").append(whereCondition)
-                                                .append(" THEN 1 ELSE 0 END) AS _COUNT, ");
+                                                .append(" THEN 1 ELSE 0 END) AS \"_COUNT\", ");
                                         } else {
-                                            sqlBuilder.append("COUNT(*) AS _COUNT, ");
+                                            sqlBuilder.append("COUNT(*) AS \"_COUNT\", ");
                                         }
                                         hasCountCol = true;
                                     } else {
