@@ -40,12 +40,6 @@ public class DbCheckerApplication {
         ResumeStateManager resumeStateManager = SpringUtil.getBean(ResumeStateManager.class);
         ResumeState state = resumeStateManager.getCurrentState();
         
-        log.info("\n-------- 处理状态摘要 --------");
-        log.info("总表数量: {}", state.getTotalTables());
-        log.info("已处理表数量: {}", state.getCompletedCount());
-        log.info("进行中表数量: {}", state.getProcessingCount());
-        log.info("待处理表数量: {}", state.getPendingCount());
-        
         // 输出已处理的表及其处理时间
         Map<String, Long> tableTimes = state.getTableProcessingTimes();
         if (tableTimes != null && !tableTimes.isEmpty()) {

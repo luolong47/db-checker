@@ -197,12 +197,14 @@ spring:
 # 日志配置
 logging:
   level:
-    root: info
-    org.springframework.jdbc.core: info
-    io.github.luolong47.dbchecker: info
-    org.springframework.jdbc.core.JdbcTemplate: debug
-    com.zaxxer.hikari: info
-    com.zaxxer.hikari.pool.HikariPool: debug
+    root: error
+    org.springframework.jdbc.core: error
+    io.github.luolong47.dbchecker: warn
+    io.github.luolong47.dbchecker.DbCheckerApplication: debug
+    org.springframework.jdbc.core.JdbcTemplate: warn
+    com.zaxxer.hikari: error
+    com.zaxxer.hikari.pool.HikariPool: error
+    io.github.luolong47.dbchecker.manager.CsvExportManager: info
     # 日志文件配置
   file:
     name: ./logs/db-checker.log

@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.entity;
 
+import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -15,7 +16,7 @@ public class Formula1 implements Formula {
 
     @Override
     public String getDesc() {
-        return "公式1: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3";
+        return StrUtil.format("公式1: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
     }
 
     @Override
@@ -71,7 +72,7 @@ public class Formula1 implements Formula {
     public String diffDesc(TableInfo tableInfo,String col) {
         BigDecimal diff = diff(tableInfo, col);
         if (diff.compareTo(BigDecimal.ZERO) == 0) {
-            return "公式1验证通过：ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3";
+            return StrUtil.format("公式1验证通过：ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
         } else {
             Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
             Map<String, BigDecimal> colResult = sumResult.get(col);
@@ -81,7 +82,7 @@ public class Formula1 implements Formula {
             BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
             BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
             
-            return String.format("公式1验证失败：ora(%s) != rlcms_pv1(%s) + rlcms_pv2(%s) + rlcms_pv3(%s)，差异值: %s",
+            return StrUtil.format("公式1验证失败：ora({}) != rlcms_pv1({}) + rlcms_pv2({}) + rlcms_pv3({})，差异值: {}",
                     oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value, diff);
         }
     }

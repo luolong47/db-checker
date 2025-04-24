@@ -423,9 +423,9 @@ public class TableManager {
             // 异步处理每个表 - 使用表处理专用线程池
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 // 为每个表创建一个StopWatch并保存到Map中
-                StopWatch tableWatch = new StopWatch("表[" + tableName + "]处理");
+                StopWatch tableWatch = new StopWatch(StrUtil.format("表[{}]处理", tableName));
                 tableStopWatches.put(tableName, tableWatch);
-                tableWatch.start("表[" + tableName + "]处理开始");
+                tableWatch.start(StrUtil.format("表[{}]处理开始", tableName));
                 
                 try {
                     TableInfo tableInfo = tableInfoMap.get(tableName);
@@ -457,10 +457,10 @@ public class TableManager {
                             String queryKey = tableName + "-" + finalActualDb;
                             Map<String, StopWatch> dbWatches = dbQueryStopWatches.computeIfAbsent(
                                 tableName, k -> new ConcurrentHashMap<>());
-                            StopWatch sqlWatch = new StopWatch("表[" + tableName + "]-数据库[" + finalActualDb + "]查询");
+                            StopWatch sqlWatch = new StopWatch(StrUtil.format("表[{}]-数据库[{}]查询", tableName, finalActualDb));
                             dbWatches.put(finalActualDb, sqlWatch);
                             
-                            sqlWatch.start("表[" + tableName + "]-数据库[" + finalActualDb + "]构建SQL");
+                            sqlWatch.start(StrUtil.format("表[{}]-数据库[{}]构建SQL", tableName, finalActualDb));
                             
                             try {
                                 JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(finalActualDb);
@@ -523,7 +523,7 @@ public class TableManager {
                                 sqlWatch.stop();
                                 log.debug("表[{}]-数据库[{}]的SQL构建完成，耗时: {}ms", tableName, finalActualDb, sqlWatch.getLastTaskTimeMillis());
                                 
-                                sqlWatch.start("表[" + tableName + "]-数据库[" + finalActualDb + "]执行SQL");
+                                sqlWatch.start(StrUtil.format("表[{}]-数据库[{}]执行SQL", tableName, finalActualDb));
                                 log.debug("执行合并统计SQL: {}, 数据库: {} (实际查询: {})", sql, finalDb, finalActualDb);
 
                                 // 将外部变量复制为final变量，以便lambda表达式中使用
@@ -597,7 +597,7 @@ public class TableManager {
                     if (currentTableWatch.isRunning()) {
                         currentTableWatch.stop();
                     }
-                    currentTableWatch.start("表[" + tableName + "]等待所有数据库查询完成");
+                    currentTableWatch.start(StrUtil.format("表[{}]等待所有数据库查询完成", tableName));
                     
                     // 等待所有数据库查询完成
                     CompletableFuture.allOf(dbFutures.toArray(new CompletableFuture[0]))
@@ -612,7 +612,7 @@ public class TableManager {
                     }
 
                     // 设置结果
-                    currentTableWatch.start("表[" + tableName + "]设置统计结果");
+                    currentTableWatch.start(StrUtil.format("表[{}]设置统计结果", tableName));
                     tableInfo.setSumResult(sumResult);
                     
                     if (currentTableWatch.isRunning()) {
@@ -638,9 +638,9 @@ public class TableManager {
             }, tableExecutor) // 使用表处理专用线程池
             .thenAcceptAsync(unused -> { // 使用CSV导出专用线程池
                 // 为每个CSV导出创建一个StopWatch并保存到Map中
-                StopWatch csvWatch = new StopWatch("表[" + tableName + "]CSV导出");
+                StopWatch csvWatch = new StopWatch(StrUtil.format("表[{}]CSV导出", tableName));
                 csvExportStopWatches.put(tableName, csvWatch);
-                csvWatch.start("表[" + tableName + "]生成CSV数据");
+                csvWatch.start(StrUtil.format("表[{}]生成CSV数据", tableName));
                 
                 // 将TableInfo转换为TableCsvResult并导出到CSV
                 try {

@@ -5,6 +5,7 @@ import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.text.csv.CsvUtil;
 import cn.hutool.core.text.csv.CsvWriteConfig;
 import cn.hutool.core.text.csv.CsvWriter;
+import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.TableCsvResult;
 import lombok.Data;
@@ -71,8 +72,8 @@ public class CsvExportManager {
 
             // 构建CSV文件路径 - 使用当前时间戳作为文件名
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            String filePath = exportDir + "/db_checker_result_" + timestamp + ".csv";
-            csvFile = new File(exportDir,filePath);
+            String filePath = StrUtil.format("{}/db_checker_result_{}.csv", exportDir, timestamp);
+            csvFile = new File(exportDir, filePath);
             FileUtil.mkParentDirs(csvFile);
 
             log.info("初始化CSV导出，文件路径: {}", csvFile);
@@ -201,7 +202,7 @@ public class CsvExportManager {
         // 使用compareTo进行比较，确保数值比较的准确性
         if (value.compareTo(THRESHOLD) > 0) {
             // 添加单引号前缀
-            return "'" + value;
+            return StrUtil.format("'{}", value);
         } else {
             return value.toString();
         }

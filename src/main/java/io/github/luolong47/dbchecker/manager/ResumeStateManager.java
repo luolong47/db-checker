@@ -2,6 +2,7 @@ package io.github.luolong47.dbchecker.manager;
 
 import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
@@ -169,7 +170,7 @@ public class ResumeStateManager {
             currentState.setProcessingCount(currentState.getProcessingTables().size());
             
             // 创建并启动表的计时器
-            StopWatch tableWatch = new StopWatch("表[" + tableName + "]处理计时");
+            StopWatch tableWatch = new StopWatch(StrUtil.format("表[{}]处理计时", tableName));
             tableWatch.start("总体处理");
             tableStopWatches.put(tableName, tableWatch);
             
