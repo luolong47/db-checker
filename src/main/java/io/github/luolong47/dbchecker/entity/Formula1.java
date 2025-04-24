@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 @Slf4j
-public class Formula1 implements Formula {
+public class Formula1 extends AbstractFormula {
 
     @Override
     public String getDesc() {
@@ -15,70 +15,34 @@ public class Formula1 implements Formula {
     }
 
     @Override
-    public boolean result(TableInfo tableInfo,String col) {
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            log.warn("表 [{}] 列 [{}] 没有求和结果，无法验证公式1", tableInfo.getTableName(), col);
-            return false;
-        }
-        
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取ora库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        
-        // 获取rlcms_pv1、rlcms_pv2、rlcms_pv3的值总和
-        BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-        BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-        BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
-        
-        // 计算总和
-        BigDecimal sum = rlcmsPv1Value.add(rlcmsPv2Value).add(rlcmsPv3Value);
-        
-        // 比较值是否相等（可能需要容忍一定误差）
+    protected boolean compareValues(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal sum = calculateRlcmsSum(colResult);
         return oraValue.compareTo(sum) == 0;
     }
 
     @Override
-    public BigDecimal diff(TableInfo tableInfo,String col) {
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            return BigDecimal.ZERO;
-        }
-        
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取ora库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        
-        // 获取rlcms_pv1、rlcms_pv2、rlcms_pv3的值总和
-        BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-        BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-        BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
-        
-        // 计算总和
-        BigDecimal sum = rlcmsPv1Value.add(rlcmsPv2Value).add(rlcmsPv3Value);
-        
-        // 返回差异值
+    protected BigDecimal calculateDiff(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal sum = calculateRlcmsSum(colResult);
         return oraValue.subtract(sum);
+    }
+    
+    private BigDecimal calculateRlcmsSum(Map<String, BigDecimal> colResult) {
+        BigDecimal rlcmsPv1Value = getValueOrZero(colResult, "rlcms-pv1");
+        BigDecimal rlcmsPv2Value = getValueOrZero(colResult, "rlcms-pv2");
+        BigDecimal rlcmsPv3Value = getValueOrZero(colResult, "rlcms-pv3");
+        return rlcmsPv1Value.add(rlcmsPv2Value).add(rlcmsPv3Value);
     }
 
     @Override
-    public String diffDesc(TableInfo tableInfo,String col) {
-        BigDecimal diff = diff(tableInfo, col);
-        if (diff.compareTo(BigDecimal.ZERO) == 0) {
-            return StrUtil.format("公式1验证通过：ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
-        } else {
-            Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-            Map<String, BigDecimal> colResult = sumResult.get(col);
-            
-            BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-            BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-            BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-            BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
-            
-            return StrUtil.format("公式1验证失败：ora({}) != rlcms_pv1({}) + rlcms_pv2({}) + rlcms_pv3({})，差异值: {}",
-                    oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value, diff);
-        }
+    protected String getFailureMessage(Map<String, BigDecimal> colResult, BigDecimal diff) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsPv1Value = getValueOrZero(colResult, "rlcms-pv1");
+        BigDecimal rlcmsPv2Value = getValueOrZero(colResult, "rlcms-pv2");
+        BigDecimal rlcmsPv3Value = getValueOrZero(colResult, "rlcms-pv3");
+        
+        return StrUtil.format("公式1验证失败：ora({}) != rlcms_pv1({}) + rlcms_pv2({}) + rlcms_pv3({})，差异值: {}",
+                oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value, diff);
     }
 }

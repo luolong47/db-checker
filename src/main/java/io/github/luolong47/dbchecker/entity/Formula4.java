@@ -1,14 +1,12 @@
 package io.github.luolong47.dbchecker.entity;
 
-import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.Map;
 
-@Data
 @Slf4j
-public class Formula4 implements Formula {
+public class Formula4 extends AbstractFormula {
 
     @Override
     public String getDesc() {
@@ -16,20 +14,11 @@ public class Formula4 implements Formula {
     }
 
     @Override
-    public boolean result(TableInfo tableInfo, String col) {
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            log.warn("表 [{}] 列 [{}] 没有求和结果，无法验证公式4", tableInfo.getTableName(), col);
-            return false;
-        }
-        
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取各库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-        BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-        BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
+    protected boolean compareValues(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsPv1Value = getValueOrZero(colResult, "rlcms-pv1");
+        BigDecimal rlcmsPv2Value = getValueOrZero(colResult, "rlcms-pv2");
+        BigDecimal rlcmsPv3Value = getValueOrZero(colResult, "rlcms-pv3");
         
         // 比较值是否都相等
         return oraValue.compareTo(rlcmsPv1Value) == 0
@@ -38,49 +27,24 @@ public class Formula4 implements Formula {
     }
 
     @Override
-    public BigDecimal diff(TableInfo tableInfo,String col) {
-        // 计算最大差异值
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            return BigDecimal.ZERO;
-        }
+    protected BigDecimal calculateDiff(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsPv1Value = getValueOrZero(colResult, "rlcms-pv1");
+        BigDecimal rlcmsPv2Value = getValueOrZero(colResult, "rlcms-pv2");
+        BigDecimal rlcmsPv3Value = getValueOrZero(colResult, "rlcms-pv3");
         
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取各库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-        BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-        BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
-        
-        // 计算与ora的差异值，并找出最大的差异值
-        BigDecimal diff1 = oraValue.subtract(rlcmsPv1Value).abs();
-        BigDecimal diff2 = oraValue.subtract(rlcmsPv2Value).abs();
-        BigDecimal diff3 = oraValue.subtract(rlcmsPv3Value).abs();
-        
-        BigDecimal maxDiff = diff1;
-        if (diff2.compareTo(maxDiff) > 0) maxDiff = diff2;
-        if (diff3.compareTo(maxDiff) > 0) maxDiff = diff3;
-        
-        return maxDiff;
+        // 使用通用方法计算最大差异值
+        return calculateMaxDifference(oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value);
     }
 
     @Override
-    public String diffDesc(TableInfo tableInfo,String col) {
-        BigDecimal maxDiff = diff(tableInfo, col);
-        if (maxDiff.compareTo(BigDecimal.ZERO) == 0) {
-            return "公式4验证通过：ora = rlcms_pv1 = rlcms_pv2 = rlcms_pv3";
-        } else {
-            Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-            Map<String, BigDecimal> colResult = sumResult.get(col);
-            
-            BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-            BigDecimal rlcmsPv1Value = colResult.getOrDefault("rlcms-pv1", BigDecimal.ZERO);
-            BigDecimal rlcmsPv2Value = colResult.getOrDefault("rlcms-pv2", BigDecimal.ZERO);
-            BigDecimal rlcmsPv3Value = colResult.getOrDefault("rlcms-pv3", BigDecimal.ZERO);
-            
-            return String.format("公式4验证失败：ora(%s) = rlcms_pv1(%s) = rlcms_pv2(%s) = rlcms_pv3(%s)，最大差异值: %s",
-                    oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value, maxDiff);
-        }
+    protected String getFailureMessage(Map<String, BigDecimal> colResult, BigDecimal diff) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsPv1Value = getValueOrZero(colResult, "rlcms-pv1");
+        BigDecimal rlcmsPv2Value = getValueOrZero(colResult, "rlcms-pv2");
+        BigDecimal rlcmsPv3Value = getValueOrZero(colResult, "rlcms-pv3");
+        
+        return String.format("公式4验证失败：ora(%s) = rlcms_pv1(%s) = rlcms_pv2(%s) = rlcms_pv3(%s)，最大差异值: %s",
+                oraValue, rlcmsPv1Value, rlcmsPv2Value, rlcmsPv3Value, diff);
     }
 } 

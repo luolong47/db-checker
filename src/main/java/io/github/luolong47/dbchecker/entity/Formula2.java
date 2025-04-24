@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 @Slf4j
-public class Formula2 implements Formula {
+public class Formula2 extends AbstractFormula {
 
     @Override
     public String getDesc() {
@@ -14,58 +14,25 @@ public class Formula2 implements Formula {
     }
 
     @Override
-    public boolean result(TableInfo tableInfo,String col) {
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            log.warn("表 [{}] 列 [{}] 没有求和结果，无法验证公式2", tableInfo.getTableName(), col);
-            return false;
-        }
-        
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取ora库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        
-        // 获取rlcms_base的值
-        BigDecimal rlcmsBaseValue = colResult.getOrDefault("rlcms-base", BigDecimal.ZERO);
-        
-        // 比较值是否相等
+    protected boolean compareValues(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsBaseValue = getValueOrZero(colResult, "rlcms-base");
         return oraValue.compareTo(rlcmsBaseValue) == 0;
     }
 
     @Override
-    public BigDecimal diff(TableInfo tableInfo,String col) {
-        Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-        if (sumResult == null || !sumResult.containsKey(col)) {
-            return BigDecimal.ZERO;
-        }
-        
-        Map<String, BigDecimal> colResult = sumResult.get(col);
-        
-        // 获取ora库的值
-        BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-        
-        // 获取rlcms_base的值
-        BigDecimal rlcmsBaseValue = colResult.getOrDefault("rlcms-base", BigDecimal.ZERO);
-        
-        // 返回差异值
+    protected BigDecimal calculateDiff(Map<String, BigDecimal> colResult) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsBaseValue = getValueOrZero(colResult, "rlcms-base");
         return oraValue.subtract(rlcmsBaseValue);
     }
 
     @Override
-    public String diffDesc(TableInfo tableInfo,String col) {
-        BigDecimal diff = diff(tableInfo,col);
-        if (diff.compareTo(BigDecimal.ZERO) == 0) {
-            return "公式2验证通过：ora = rlcms_base";
-        } else {
-            Map<String, Map<String, BigDecimal>> sumResult = tableInfo.getSumResult();
-            Map<String, BigDecimal> colResult = sumResult.get(col);
-            
-            BigDecimal oraValue = colResult.getOrDefault("ora", BigDecimal.ZERO);
-            BigDecimal rlcmsBaseValue = colResult.getOrDefault("rlcms-base", BigDecimal.ZERO);
-            
-            return String.format("公式2验证失败：ora(%s) != rlcms_base(%s)，差异值: %s",
-                    oraValue, rlcmsBaseValue, diff);
-        }
+    protected String getFailureMessage(Map<String, BigDecimal> colResult, BigDecimal diff) {
+        BigDecimal oraValue = getValueOrZero(colResult, "ora");
+        BigDecimal rlcmsBaseValue = getValueOrZero(colResult, "rlcms-base");
+        
+        return String.format("公式2验证失败：ora(%s) != rlcms_base(%s)，差异值: %s",
+                oraValue, rlcmsBaseValue, diff);
     }
 } 

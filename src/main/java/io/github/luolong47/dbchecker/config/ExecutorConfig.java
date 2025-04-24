@@ -27,7 +27,39 @@ public class ExecutorConfig {
      */
     @Bean
     public ExecutorService tableExecutor() {
-        Dbconfig.ThreadPoolProperties props = dbconfig.getPool().getTable();
+        return createThreadPoolExecutor(dbconfig.getPool().getTable(), "表处理线程池");
+    }
+
+    /**
+     * 数据库查询线程池 - 用于数据库查询操作
+     * 线程池大小：处理器核心数 * 2，因为主要是IO操作
+     * 队列大小：200，支持较多查询排队
+     * 线程命名前缀：db-query-executor-
+     */
+    @Bean
+    public ExecutorService dbQueryExecutor() {
+        return createThreadPoolExecutor(dbconfig.getPool().getDbQuery(), "数据库查询线程池");
+    }
+
+    /**
+     * CSV导出线程池 - 用于处理CSV结果转换和写入
+     * 线程池大小：固定为4，避免过多线程同时写文件
+     * 队列大小：100，允许足够多的任务等待执行
+     * 线程命名前缀：csv-export-executor-
+     */
+    @Bean
+    public ExecutorService csvExportExecutor() {
+        return createThreadPoolExecutor(dbconfig.getPool().getCsvExport(), "CSV导出线程池");
+    }
+
+    /**
+     * 根据配置创建线程池
+     * 
+     * @param props 线程池配置属性
+     * @param poolName 线程池名称，用于日志记录
+     * @return 创建的线程池
+     */
+    private ExecutorService createThreadPoolExecutor(Dbconfig.ThreadPoolProperties props, String poolName) {
         int corePoolSize = props.getCoreSize() > 0 ? props.getCoreSize() : Runtime.getRuntime().availableProcessors();
         int maxPoolSize = props.getMaxSize() > 0 ? props.getMaxSize() : corePoolSize;
 
@@ -43,63 +75,7 @@ public class ExecutorConfig {
             getRejectedExecutionHandler(props.getRejectionPolicy())
         );
         
-        logThreadPoolCreation("表处理线程池", executor, props);
-        return executor;
-    }
-
-    /**
-     * 数据库查询线程池 - 用于数据库查询操作
-     * 线程池大小：处理器核心数 * 2，因为主要是IO操作
-     * 队列大小：200，支持较多查询排队
-     * 线程命名前缀：db-query-executor-
-     */
-    @Bean
-    public ExecutorService dbQueryExecutor() {
-        Dbconfig.ThreadPoolProperties props = dbconfig.getPool().getDbQuery();
-        int corePoolSize = props.getCoreSize() > 0 ? props.getCoreSize() : Runtime.getRuntime().availableProcessors() * 2;
-        int maxPoolSize = props.getMaxSize() > 0 ? props.getMaxSize() : corePoolSize;
-
-        ThreadFactory threadFactory = createThreadFactory(props.getThreadNamePrefix());
-        
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-            corePoolSize,
-            maxPoolSize,
-            props.getKeepAliveTime(),
-            TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(props.getQueueCapacity()),
-            threadFactory,
-            getRejectedExecutionHandler(props.getRejectionPolicy())
-        );
-        
-        logThreadPoolCreation("数据库查询线程池", executor, props);
-        return executor;
-    }
-
-    /**
-     * CSV导出线程池 - 用于处理CSV结果转换和写入
-     * 线程池大小：固定为4，避免过多线程同时写文件
-     * 队列大小：100，允许足够多的任务等待执行
-     * 线程命名前缀：csv-export-executor-
-     */
-    @Bean
-    public ExecutorService csvExportExecutor() {
-        Dbconfig.ThreadPoolProperties props = dbconfig.getPool().getCsvExport();
-        int corePoolSize = props.getCoreSize();
-        int maxPoolSize = props.getMaxSize() > 0 ? props.getMaxSize() : corePoolSize;
-
-        ThreadFactory threadFactory = createThreadFactory(props.getThreadNamePrefix());
-        
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-            corePoolSize,
-            maxPoolSize,
-            props.getKeepAliveTime(),
-            TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(props.getQueueCapacity()),
-            threadFactory,
-            getRejectedExecutionHandler(props.getRejectionPolicy())
-        );
-        
-        logThreadPoolCreation("CSV导出线程池", executor, props);
+        logThreadPoolCreation(poolName, executor, props);
         return executor;
     }
 
@@ -178,5 +154,4 @@ public class ExecutorConfig {
                 return "未知策略";
         }
     }
-    
 }
