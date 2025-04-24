@@ -5,8 +5,6 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.github.luolong47.dbchecker.entity.TableEnt;
 import io.github.luolong47.dbchecker.manager.DynamicDataSourceManager;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
@@ -16,14 +14,12 @@ import java.util.Map;
 
 public interface TableService {
     
-    Logger log = LoggerFactory.getLogger(TableService.class);
 
     static TableService getTableService(String dbName){
         DynamicDataSourceManager dataSourceManager = SpringUtil.getBean(DynamicDataSourceManager.class);
         
         // 检查数据源是否存在
         if (!dataSourceManager.hasDataSource(dbName)) {
-            log.warn("数据源 [{}] 不存在或已禁用，返回空TableService", dbName);
             return new DisabledTableService(dbName);
         }
         
@@ -43,8 +39,6 @@ public interface TableService {
                 throw new RuntimeException("不支持的数据库类型: " + driverClassName);
             }
         } else {
-            // 处理禁用的数据源
-            log.warn("数据源 [{}] 已禁用或类型未知，返回空TableService", dbName);
             return new DisabledTableService(dbName);
         }
     }

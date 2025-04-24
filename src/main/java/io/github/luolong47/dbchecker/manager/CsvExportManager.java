@@ -1,5 +1,6 @@
 package io.github.luolong47.dbchecker.manager;
 
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.text.csv.CsvUtil;
 import cn.hutool.core.text.csv.CsvWriteConfig;
@@ -8,16 +9,15 @@ import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.TableCsvResult;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.Resource;
+import java.io.File;
 import java.io.FileWriter;
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -29,7 +29,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class CsvExportManager {
     // CSV导出相关常量
     public static final BigDecimal THRESHOLD = new BigDecimal("999999999999999");
-    
+    public static final String[] HEADERS = new String[]{
+        "表名", "所在库", "金额字段", "统计项", "SUM_ORA_ALL", "SUM_ORA",
+        "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3",
+        "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
+        "应用公式", "公式结果", "差异值", "差异描述"
+    };
+
     // 添加计数器，用于显示进度
     private AtomicInteger csvExportCounter = new AtomicInteger(0);
     // 添加共享文件锁，确保多线程写入安全
@@ -37,9 +43,9 @@ public class CsvExportManager {
     // 添加共享的CSV写入器
     private CsvWriter csvWriter;
     // 保存CSV文件路径
-    private String csvFilePath;
+    private File csvFile;
     
-    @Autowired
+    @Resource
     private Dbconfig dbconfig;
     
     @PostConstruct
@@ -63,33 +69,26 @@ public class CsvExportManager {
                 .map(Dbconfig.Export::getDirectory)
                 .orElse("./export");
 
-            // 确保导出目录存在
-            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(exportDir));
-
             // 构建CSV文件路径 - 使用当前时间戳作为文件名
-            String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
-            csvFilePath = exportDir + "/db_checker_result_" + timestamp + ".csv";
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+            String filePath = exportDir + "/db_checker_result_" + timestamp + ".csv";
+            csvFile = new File(exportDir,filePath);
+            FileUtil.mkParentDirs(csvFile);
 
-            log.info("初始化CSV导出，文件路径: {}", csvFilePath);
+            log.info("初始化CSV导出，文件路径: {}", csvFile);
 
             // 创建CSV写入器 - 配置为支持Bean写入，指定头部别名
             CsvWriteConfig config = new CsvWriteConfig();
             config.setHeaderAlias(createHeaderAlias()); // 设置表头别名映射
 
             // 使用FileWriter创建CsvWriter
-            FileWriter fileWriter = new FileWriter(csvFilePath);
+            FileWriter fileWriter = new FileWriter(csvFile);
 
             // 创建CsvWriter，并初始化表头
             csvWriter = CsvUtil.getWriter(fileWriter, config);
 
             // 手动写入表头行，原来的writeHeaderLine()可能没有生效
-            String[] headers = new String[]{
-                "表名", "所在库", "金额字段", "统计项", "SUM_ORA_ALL", "SUM_ORA",
-                "SUM_RLCMS_BASE", "SUM_RLCMS_PV1", "SUM_RLCMS_PV2", "SUM_RLCMS_PV3",
-                "SUM_BSCOPY_PV1", "SUM_BSCOPY_PV2", "SUM_BSCOPY_PV3",
-                "应用公式", "公式结果", "差异值", "差异描述"
-            };
-            csvWriter.write(headers);
+            csvWriter.write(HEADERS);
 
             log.info("CSV写入器初始化完成，已手动写入表头");
         } catch (Exception e) {
@@ -158,7 +157,7 @@ public class CsvExportManager {
      */
     public void closeWriter() {
         IoUtil.close(csvWriter);
-        log.info("CSV写入器已关闭，文件保存在: {}", csvFilePath);
+        log.info("CSV写入器已关闭，文件保存在: {}", csvFile);
     }
 
     /**
