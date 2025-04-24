@@ -3,6 +3,7 @@ package io.github.luolong47.dbchecker.manager;
 import cn.hutool.core.collection.ListUtil;
 import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.extra.spring.SpringUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.*;
 import io.github.luolong47.dbchecker.service.TableService;
@@ -799,7 +800,21 @@ public class TableManager {
     private void initTableServices() {
         tableServices = new ConcurrentHashMap<>();
         for (String db : dbs) {
-            tableServices.put(db, TableService.getTableService(db));
+            try {
+                DynamicDataSourceManager dataSourceManager = SpringUtil.getBean(DynamicDataSourceManager.class);
+                // 首先检查数据源是否存在(已启用)
+                if (!dataSourceManager.hasDataSource(db)) {
+                    log.warn("数据源 [{}] 不存在或已禁用，将使用禁用的TableService", db);
+                    tableServices.put(db, new TableService.DisabledTableService(db));
+                } else {
+                    tableServices.put(db, TableService.getTableService(db));
+                    log.info("为数据源 [{}] 创建TableService成功", db);
+                }
+            } catch (Exception e) {
+                log.error("为数据源 [{}] 创建TableService失败: {}", db, e.getMessage());
+                // 创建失败时使用禁用的TableService
+                tableServices.put(db, new TableService.DisabledTableService(db));
+            }
         }
     }
 

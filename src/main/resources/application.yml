@@ -7,6 +7,7 @@ spring:
     sources:
       # 主数据源配置
       ora:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
         username: sa
@@ -27,6 +28,7 @@ spring:
 
       # ora-slave数据源配置（ora的从节点）
       ora-slave:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/ora;AUTO_SERVER=TRUE;
         username: sa
@@ -47,6 +49,7 @@ spring:
 
       # rlcms_base数据源配置（原secondary）
       rlcms-base:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/rlcms_base;AUTO_SERVER=TRUE;
         username: sa
@@ -67,6 +70,7 @@ spring:
       
       # rlcms_pv1数据源配置（原tertiary）
       rlcms-pv1:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/rlcms_pv1;AUTO_SERVER=TRUE;
         username: sa
@@ -87,6 +91,7 @@ spring:
       
       # rlcms_pv2数据源配置（原fourth）
       rlcms-pv2:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/rlcms_pv2;AUTO_SERVER=TRUE;
         username: sa
@@ -107,6 +112,7 @@ spring:
       
       # rlcms_pv3数据源配置（原fifth）
       rlcms-pv3:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/rlcms_pv3;AUTO_SERVER=TRUE;
         username: sa
@@ -127,6 +133,7 @@ spring:
       
       # bscopy_pv1数据源配置（原sixth）
       bscopy-pv1:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/bscopy_pv1;AUTO_SERVER=TRUE;
         username: sa
@@ -147,6 +154,7 @@ spring:
       
       # bscopy_pv2数据源配置（原seventh）
       bscopy-pv2:
+        enable: true
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/bscopy_pv2;AUTO_SERVER=TRUE;
         username: sa
@@ -167,10 +175,11 @@ spring:
       
       # bscopy_pv3数据源配置（原eighth）
       bscopy-pv3:
+        enable: false
         driver-class-name: org.h2.Driver
         jdbc-url: jdbc:h2:file:./data/bscopy_pv3;AUTO_SERVER=TRUE;
         username: sa
-        password:
+        password: xxx
         pool-name: BscopyPv3Pool
         # 最大连接数（含活跃与空闲连接） 根据数据库并发处理能力设置，一般设置为CPU核数*2+2。例如4核服务器建议10-15
         maximum-pool-size: 2
