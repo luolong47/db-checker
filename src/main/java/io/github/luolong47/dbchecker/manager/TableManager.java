@@ -672,6 +672,9 @@ public class TableManager {
                         currentCsvWatch.stop();
                     }
                     
+                    // 保存表信息数据
+                    resumeStateManager.saveState(tableInfoMap);
+                    
                     log.info("表[{}]的CSV导出已完成并保存状态，CSV导出耗时: {}ms", 
                         tableName, currentCsvWatch.getLastTaskTimeMillis());
                     
@@ -743,6 +746,19 @@ public class TableManager {
             if (csvExportExecutor instanceof ExecutorService) {
                 log.info("关闭CSV导出线程池...");
                 csvExportExecutor.shutdown();
+            }
+            
+            // 保存最终状态并关闭状态管理器
+            try {
+                log.info("保存最终状态并关闭状态管理器...");
+                // 确保最终状态已保存，传入tableInfoMap
+                resumeStateManager.saveState(tableInfoMap);
+                // 等待一段时间确保状态保存完成
+                Thread.sleep(1000);
+                // 关闭状态管理器
+                resumeStateManager.shutdown();
+            } catch (Exception e) {
+                log.error("关闭状态管理器时发生错误: {}", e.getMessage(), e);
             }
             
             log.info("线程池已关闭");

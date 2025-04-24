@@ -6,6 +6,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.ResumeState;
+import io.github.luolong47.dbchecker.entity.TableInfo;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 断点续跑状态管理类
@@ -36,6 +40,15 @@ public class ResumeStateManager {
     
     // 记录每个表的StopWatch，用于统计处理时间
     final private Map<String, StopWatch> tableStopWatches = new ConcurrentHashMap<>();
+    
+    // 用于异步保存状态的线程池
+    private final ExecutorService saveStateExecutor = Executors.newSingleThreadExecutor();
+    
+    // 用于保护状态保存的锁
+    private final ReentrantLock saveStateLock = new ReentrantLock();
+    
+    // 保存的TableInfo数据
+    private Map<String, TableInfo> lastTableInfoMap;
 
     /**
      * 初始化状态管理器
@@ -328,49 +341,114 @@ public class ResumeStateManager {
      * 保存当前状态到文件
      */
     public void saveState() {
-        try {
-            // 更新时间戳
-            currentState.setTimestamp(System.currentTimeMillis());
-            
-            // 创建用于序列化的JSON对象
-            JSONObject jsonObject = new JSONObject();
-            
-            // 添加基本集合属性
-            jsonObject.set("completedTables", currentState.getCompletedTables());
-            jsonObject.set("processingTables", currentState.getProcessingTables());
-            jsonObject.set("pendingTables", currentState.getPendingTables());
-            
-            // 添加原子类型属性
-            jsonObject.set("timestamp", currentState.getTimestamp());
-            jsonObject.set("totalTables", currentState.getTotalTables());
-            jsonObject.set("completedCount", currentState.getCompletedCount());
-            jsonObject.set("processingCount", currentState.getProcessingCount());
-            jsonObject.set("pendingCount", currentState.getPendingCount());
-            jsonObject.set("progressPercentage", currentState.getProgressPercentage());
-            
-            // 添加表处理时间
-            JSONObject tableTimesJson = new JSONObject();
-            currentState.getTableProcessingTimes().forEach(tableTimesJson::set);
-            jsonObject.set("tableProcessingTimes", tableTimesJson);
-            
-            // 添加数据库处理时间
-            JSONObject dbTimesJson = new JSONObject();
-            currentState.getTableDbProcessingTimes().forEach((tableName, dbTimes) -> {
-                JSONObject dbTimesObj = new JSONObject();
-                dbTimes.forEach(dbTimesObj::set);
-                dbTimesJson.set(tableName, dbTimesObj);
-            });
-            jsonObject.set("tableDbProcessingTimes", dbTimesJson);
-            
-            // 将对象转换为JSON并写入文件
-            String jsonStr = jsonObject.toString();
-            
-            FileUtil.writeUtf8String(jsonStr, stateFile);
-            
-            log.info("已保存状态到文件: {}", stateFile.getAbsolutePath());
-        } catch (Exception e) {
-            log.error("保存状态文件失败: {}", e.getMessage(), e);
+        saveState(lastTableInfoMap);
+    }
+    
+    /**
+     * 保存当前状态到文件，包含tableInfoMap数据
+     * 
+     * @param tableInfoMap 表信息映射
+     */
+    public void saveState(Map<String, TableInfo> tableInfoMap) {
+        // 保存最新的tableInfoMap引用
+        if (tableInfoMap != null) {
+            this.lastTableInfoMap = tableInfoMap;
         }
+        
+        // 异步执行保存操作
+        saveStateExecutor.submit(() -> {
+            // 加锁确保线程安全
+            saveStateLock.lock();
+            try {
+                // 更新时间戳
+                currentState.setTimestamp(System.currentTimeMillis());
+                
+                // 创建用于序列化的JSON对象
+                JSONObject jsonObject = new JSONObject();
+                
+                // 添加基本集合属性
+                jsonObject.set("completedTables", currentState.getCompletedTables());
+                jsonObject.set("processingTables", currentState.getProcessingTables());
+                jsonObject.set("pendingTables", currentState.getPendingTables());
+                
+                // 添加原子类型属性
+                jsonObject.set("timestamp", currentState.getTimestamp());
+                jsonObject.set("totalTables", currentState.getTotalTables());
+                jsonObject.set("completedCount", currentState.getCompletedCount());
+                jsonObject.set("processingCount", currentState.getProcessingCount());
+                jsonObject.set("pendingCount", currentState.getPendingCount());
+                jsonObject.set("progressPercentage", currentState.getProgressPercentage());
+                
+                // 添加表处理时间
+                JSONObject tableTimesJson = new JSONObject();
+                currentState.getTableProcessingTimes().forEach(tableTimesJson::set);
+                jsonObject.set("tableProcessingTimes", tableTimesJson);
+                
+                // 添加数据库处理时间
+                JSONObject dbTimesJson = new JSONObject();
+                currentState.getTableDbProcessingTimes().forEach((tableName, dbTimes) -> {
+                    JSONObject dbTimesObj = new JSONObject();
+                    dbTimes.forEach(dbTimesObj::set);
+                    dbTimesJson.set(tableName, dbTimesObj);
+                });
+                jsonObject.set("tableDbProcessingTimes", dbTimesJson);
+                
+                // 添加TableInfoMap数据，如果有的话
+                if (lastTableInfoMap != null && !lastTableInfoMap.isEmpty()) {
+                    JSONObject tableInfoJson = new JSONObject();
+                    lastTableInfoMap.forEach((tableName, tableInfo) -> {
+                        if (tableInfo != null) {
+                            JSONObject infoJson = new JSONObject();
+                            infoJson.set("tableName", tableInfo.getTableName());
+                            infoJson.set("dbs", tableInfo.getDbs());
+                            
+                            // 添加求和结果
+                            if (tableInfo.getSumResult() != null) {
+                                JSONObject sumResultJson = new JSONObject();
+                                tableInfo.getSumResult().forEach((col, dbValues) -> {
+                                    JSONObject dbValuesJson = new JSONObject();
+                                    dbValues.forEach(dbValuesJson::set);
+                                    sumResultJson.set(col, dbValuesJson);
+                                });
+                                infoJson.set("sumResult", sumResultJson);
+                            }
+                            
+                            // 添加求和列
+                            if (tableInfo.getSumCols() != null) {
+                                infoJson.set("sumCols", tableInfo.getSumCols());
+                            }
+                            
+                            // 添加公式信息
+                            if (tableInfo.getFormula() != null) {
+                                infoJson.set("formulaDesc", tableInfo.getFormula().getDesc());
+                            }
+                            
+                            tableInfoJson.set(tableName, infoJson);
+                        }
+                    });
+                    jsonObject.set("tableInfoMap", tableInfoJson);
+                }
+                
+                // 将对象转换为JSON并写入文件
+                String jsonStr = jsonObject.toString();
+                
+                FileUtil.writeUtf8String(jsonStr, stateFile);
+                
+                log.info("已异步保存状态到文件: {}", stateFile.getAbsolutePath());
+            } catch (Exception e) {
+                log.error("保存状态文件失败: {}", e.getMessage(), e);
+            } finally {
+                saveStateLock.unlock();
+            }
+        });
+    }
+    
+    /**
+     * 关闭状态管理器资源
+     */
+    public void shutdown() {
+        log.info("关闭状态管理器资源...");
+        saveStateExecutor.shutdown();
     }
 
     /**
