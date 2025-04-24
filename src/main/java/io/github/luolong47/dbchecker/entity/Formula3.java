@@ -9,10 +9,6 @@ import java.util.Map;
 @Data
 @Slf4j
 public class Formula3 implements Formula {
-    @Override
-    public String getName() {
-        return "公式3";
-    }
 
     @Override
     public String getDesc() {

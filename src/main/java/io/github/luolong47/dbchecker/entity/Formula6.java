@@ -11,11 +11,6 @@ import java.util.Map;
 public class Formula6 implements Formula {
 
     @Override
-    public String getName() {
-        return "公式6";
-    }
-
-    @Override
     public String getDesc() {
         return "公式6: ora = rlcms_pv1";
     }

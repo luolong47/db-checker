@@ -10,11 +10,6 @@ import java.util.Map;
 public class Formula1 implements Formula {
 
     @Override
-    public String getName() {
-        return "公式1";
-    }
-
-    @Override
     public String getDesc() {
         return StrUtil.format("公式1: ora = rlcms_pv1 + rlcms_pv2 + rlcms_pv3");
     }

@@ -12,7 +12,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.Resource;
 import java.io.File;
 import java.util.Map;
 import java.util.Optional;
@@ -29,8 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class ResumeStateManager {
 
-    @Resource
-    private Dbconfig dbconfig;
+    private final Dbconfig dbconfig;
 
     /**
      *  获取当前状态
@@ -50,6 +48,10 @@ public class ResumeStateManager {
     
     // 保存的TableInfo数据
     private Map<String, TableInfo> lastTableInfoMap;
+
+    public ResumeStateManager(Dbconfig dbconfig) {
+        this.dbconfig = dbconfig;
+    }
 
     /**
      * 初始化状态管理器

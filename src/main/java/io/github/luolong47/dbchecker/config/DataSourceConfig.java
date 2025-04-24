@@ -3,7 +3,6 @@ package io.github.luolong47.dbchecker.config;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -22,8 +21,11 @@ import java.util.logging.Logger;
 @Configuration
 public class DataSourceConfig {
 
-    @Autowired
-    private Environment env;
+    private final Environment env;
+
+    public DataSourceConfig(Environment env) {
+        this.env = env;
+    }
 
     @Bean(name = "oraHikariConfig")
     @ConfigurationProperties("spring.datasource.sources.ora")

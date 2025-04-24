@@ -1,13 +1,10 @@
 package io.github.luolong47.dbchecker.config;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -16,11 +13,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 @EnableConfigurationProperties
 public class ExecutorConfig {
 
-    @Autowired
-    private Dbconfig dbconfig;
-    
-    // 存储线程池实例，用于关闭
-    private final Map<String, ThreadPoolExecutor> executorMap = new HashMap<>();
+    private final Dbconfig dbconfig;
+
+    public ExecutorConfig(Dbconfig dbconfig) {
+        this.dbconfig = dbconfig;
+    }
 
     /**
      * 表处理线程池 - 用于处理表级别的并行任务
@@ -46,7 +43,6 @@ public class ExecutorConfig {
             getRejectedExecutionHandler(props.getRejectionPolicy())
         );
         
-        executorMap.put("tableExecutor", executor);
         logThreadPoolCreation("表处理线程池", executor, props);
         return executor;
     }
@@ -75,7 +71,6 @@ public class ExecutorConfig {
             getRejectedExecutionHandler(props.getRejectionPolicy())
         );
         
-        executorMap.put("dbQueryExecutor", executor);
         logThreadPoolCreation("数据库查询线程池", executor, props);
         return executor;
     }
@@ -104,7 +99,6 @@ public class ExecutorConfig {
             getRejectedExecutionHandler(props.getRejectionPolicy())
         );
         
-        executorMap.put("csvExportExecutor", executor);
         logThreadPoolCreation("CSV导出线程池", executor, props);
         return executor;
     }

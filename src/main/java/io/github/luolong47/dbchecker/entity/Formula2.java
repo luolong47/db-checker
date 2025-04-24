@@ -1,6 +1,5 @@
 package io.github.luolong47.dbchecker.entity;
 
-import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
@@ -8,11 +7,6 @@ import java.util.Map;
 
 @Slf4j
 public class Formula2 implements Formula {
-
-    @Override
-    public String getName() {
-        return "公式2";
-    }
 
     @Override
     public String getDesc() {

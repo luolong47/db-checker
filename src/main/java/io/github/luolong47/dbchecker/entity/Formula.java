@@ -3,7 +3,6 @@ package io.github.luolong47.dbchecker.entity;
 import java.math.BigDecimal;
 
 public interface Formula {
-    String getName();
 
     String getDesc();
 

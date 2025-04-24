@@ -9,7 +9,6 @@ import io.github.luolong47.dbchecker.entity.*;
 import io.github.luolong47.dbchecker.service.TableService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -41,24 +40,17 @@ public class TableManager {
     private List<String> slaveQueryTbs = new CopyOnWriteArrayList<>(); // 存储需要从从节点查询的表名列表
     private Map<String, String> tb2hint;
     private Map<String, Formula> tb2formula;
-    @Autowired
-    private Dbconfig dbconfig;
-    @Autowired
-    private DynamicJdbcTemplateManager dynamicJdbcTemplateManager;
-    @Autowired
-    private CsvExportManager csvExportManager;
-    @Autowired
-    private ResumeStateManager resumeStateManager;
+    private final Dbconfig dbconfig;
+    private final DynamicJdbcTemplateManager dynamicJdbcTemplateManager;
+    private final CsvExportManager csvExportManager;
+    private final ResumeStateManager resumeStateManager;
     
     // 注入不同用途的线程池
-    @Autowired
-    private ExecutorService tableExecutor;
+    private final ExecutorService tableExecutor;
     
-    @Autowired
-    private ExecutorService dbQueryExecutor;
+    private final ExecutorService dbQueryExecutor;
     
-    @Autowired
-    private ExecutorService csvExportExecutor;
+    private final ExecutorService csvExportExecutor;
 
     // 存储表处理的StopWatch对象
     private Map<String, StopWatch> tableStopWatches = new ConcurrentHashMap<>();
@@ -71,6 +63,16 @@ public class TableManager {
     
     // 全局表处理的StopWatch对象
     private StopWatch globalTableWatch;
+
+    public TableManager(Dbconfig dbconfig, DynamicJdbcTemplateManager dynamicJdbcTemplateManager, CsvExportManager csvExportManager, ResumeStateManager resumeStateManager, ExecutorService tableExecutor, ExecutorService dbQueryExecutor, ExecutorService csvExportExecutor) {
+        this.dbconfig = dbconfig;
+        this.dynamicJdbcTemplateManager = dynamicJdbcTemplateManager;
+        this.csvExportManager = csvExportManager;
+        this.resumeStateManager = resumeStateManager;
+        this.tableExecutor = tableExecutor;
+        this.dbQueryExecutor = dbQueryExecutor;
+        this.csvExportExecutor = csvExportExecutor;
+    }
 
     @PostConstruct
     public void init() {
@@ -454,7 +456,6 @@ public class TableManager {
                         // 使用数据库查询专用线程池处理查询任务
                         CompletableFuture<Void> dbFuture = CompletableFuture.runAsync(() -> {
                             // 为每个数据库查询创建一个StopWatch并保存到Map中
-                            String queryKey = tableName + "-" + finalActualDb;
                             Map<String, StopWatch> dbWatches = dbQueryStopWatches.computeIfAbsent(
                                 tableName, k -> new ConcurrentHashMap<>());
                             StopWatch sqlWatch = new StopWatch(StrUtil.format("表[{}]-数据库[{}]查询", tableName, finalActualDb));
@@ -733,22 +734,6 @@ public class TableManager {
         log.info("所有数据处理任务已完成，开始关闭线程池...");
         
         try {
-            // 直接关闭线程池
-            if (tableExecutor instanceof ExecutorService) {
-                log.info("关闭表处理线程池...");
-                tableExecutor.shutdown();
-            }
-            
-            if (dbQueryExecutor instanceof ExecutorService) {
-                log.info("关闭数据库查询线程池...");
-                dbQueryExecutor.shutdown();
-            }
-            
-            if (csvExportExecutor instanceof ExecutorService) {
-                log.info("关闭CSV导出线程池...");
-                csvExportExecutor.shutdown();
-            }
-            
             // 保存最终状态并关闭状态管理器
             try {
                 log.info("保存最终状态并关闭状态管理器...");
@@ -761,7 +746,23 @@ public class TableManager {
             } catch (Exception e) {
                 log.error("关闭状态管理器时发生错误: {}", e.getMessage(), e);
             }
-            
+
+            // 直接关闭线程池
+            if (tableExecutor != null) {
+                log.info("关闭表处理线程池...");
+                tableExecutor.shutdown();
+            }
+
+            if (dbQueryExecutor != null) {
+                log.info("关闭数据库查询线程池...");
+                dbQueryExecutor.shutdown();
+            }
+
+            if (csvExportExecutor != null) {
+                log.info("关闭CSV导出线程池...");
+                csvExportExecutor.shutdown();
+            }
+
             log.info("线程池已关闭");
         } catch (Exception e) {
             log.error("关闭线程池时发生错误: {}", e.getMessage(), e);

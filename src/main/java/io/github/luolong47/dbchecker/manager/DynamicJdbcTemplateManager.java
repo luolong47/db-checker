@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -75,28 +74,4 @@ public class DynamicJdbcTemplateManager {
         return jdbcTemplate;
     }
 
-    /**
-     * 获取主数据源的JdbcTemplate
-     * @return 主JdbcTemplate实例
-     */
-    public JdbcTemplate getPrimaryJdbcTemplate() {
-        return getJdbcTemplate("ora");
-    }
-
-    /**
-     * 获取所有JdbcTemplate
-     * @return JdbcTemplate Map
-     */
-    public Map<String, JdbcTemplate> getAllJdbcTemplates() {
-        return new HashMap<>(jdbcTemplates);
-    }
-    
-    /**
-     * 检查JdbcTemplate是否存在
-     * @param dataSourceName 数据源名称
-     * @return 是否存在
-     */
-    public boolean hasJdbcTemplate(String dataSourceName) {
-        return jdbcTemplates.containsKey(dataSourceName);
-    }
-} 
+}

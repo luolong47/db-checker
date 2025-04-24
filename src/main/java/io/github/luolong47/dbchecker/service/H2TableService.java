@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.ArrayList;
 
+@SuppressWarnings("ALL")
 @Slf4j
 @Service("h2TableService")
 public class H2TableService extends AbstractTableService  {

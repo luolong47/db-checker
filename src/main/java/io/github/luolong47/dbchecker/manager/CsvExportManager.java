@@ -12,8 +12,6 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.Resource;
 import java.io.File;
 import java.io.FileWriter;
 import java.math.BigDecimal;
@@ -46,14 +44,12 @@ public class CsvExportManager {
     // 保存CSV文件路径
     private File csvFile;
     
-    @Resource
-    private Dbconfig dbconfig;
-    
-    @PostConstruct
-    public void init() {
-        log.info("CSV导出管理器初始化");
+    private final Dbconfig dbconfig;
+
+    public CsvExportManager(Dbconfig dbconfig) {
+        this.dbconfig = dbconfig;
     }
-    
+
     /**
      * 初始化CSV导出
      * 
@@ -71,8 +67,7 @@ public class CsvExportManager {
                 .orElse("./export");
 
             // 构建CSV文件路径 - 使用当前时间戳作为文件名
-            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-            String filePath = StrUtil.format("{}/db_checker_result_{}.csv", exportDir, timestamp);
+            String filePath = StrUtil.format("db_checker_result_{}.csv", new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date()));
             csvFile = new File(exportDir, filePath);
             FileUtil.mkParentDirs(csvFile);
 

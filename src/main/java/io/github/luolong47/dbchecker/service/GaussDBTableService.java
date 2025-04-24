@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
 
+@SuppressWarnings("ALL")
 @Slf4j
 @Service("gaussDBTableService")
 public class GaussDBTableService extends AbstractTableService {

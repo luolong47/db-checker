@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -97,30 +96,6 @@ public class DynamicDataSourceManager {
         return dataSource;
     }
 
-    /**
-     * 获取主数据源
-     * @return 主数据源实例
-     */
-    public DataSource getPrimaryDataSource() {
-        return getDataSource("ora");
-    }
-
-    /**
-     * 获取所有数据源名称
-     * @return 数据源名称集合
-     */
-    public Iterable<String> getAllDataSourceNames() {
-        return dataSources.keySet();
-    }
-    
-    /**
-     * 获取所有数据源
-     * @return 数据源Map
-     */
-    public Map<String, DataSource> getAllDataSources() {
-        return new HashMap<>(dataSources);
-    }
-    
     /**
      * 检查数据源是否存在
      * @param name 数据源名称

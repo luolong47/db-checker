@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@SuppressWarnings("ALL")
 @Slf4j
 @Service("oracleTableService")
 public class OracleTableService extends AbstractTableService {
