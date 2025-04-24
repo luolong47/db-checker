@@ -1,6 +1,7 @@
 package io.github.luolong47.dbchecker.service;
 
 import cn.hutool.core.collection.ListUtil;
+import cn.hutool.core.date.StopWatch;
 import io.github.luolong47.dbchecker.entity.TableEnt;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,6 +16,10 @@ public class OracleTableService extends AbstractTableService {
     
     @Override
     public List<TableEnt> getTables(JdbcTemplate jdbcTemplate, List<String> schemas, List<String> tables) {
+        // 创建StopWatch来记录执行时间
+        StopWatch watch = new StopWatch("Oracle表信息查询");
+        watch.start("Oracle构建表查询SQL");
+        
         // 将列表转换为IN子句的形式
         String schemasStr = schemas.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
 
@@ -29,22 +34,39 @@ public class OracleTableService extends AbstractTableService {
                      "WHERE OWNER IN (" + schemasStr + ") " +
                      "AND (TABLE_NAME IN (" + tablesStr + "))";
         
+        watch.stop();
+        watch.start("Oracle执行表查询SQL");
         log.info("执行SQL: {}", sql);
-        return jdbcTemplate.query(sql, (rs, rowNum) -> {
+        
+        List<TableEnt> result = jdbcTemplate.query(sql, (rs, rowNum) -> {
             TableEnt tableEnt = new TableEnt();
             tableEnt.setTableName(rs.getString("TABLE_NAME"));
             tableEnt.setSchemaName(rs.getString("SCHEMA_NAME"));
             return tableEnt;
         });
+        
+        watch.stop();
+        log.info("Oracle表信息查询执行完成，耗时统计：\n{}", watch.prettyPrint());
+        
+        return result;
     }
 
     @Override
     public Map<String, List<String>> getDecimalColumnsForTables(JdbcTemplate jdbcTemplate, String schema, List<String> tables, int minDecimalDigits) {
+        // 创建StopWatch来记录执行时间
+        StopWatch watch = new StopWatch("Oracle金额列查询");
+        watch.start("Oracle金额列查询前置检查");
+        
         if (tables == null || tables.isEmpty()) {
+            watch.stop();
+            log.info("表列表为空，直接返回空结果");
             return Collections.emptyMap();
         }
         
         try {
+            watch.stop();
+            watch.start("Oracle金额列查询构建SQL");
+            
             // 将表名列表转换为IN子句形式
             List<List<String>> tablesSplit = ListUtil.split(tables, 1000);
             String tablesStr = tablesSplit.stream()
@@ -59,7 +81,9 @@ public class OracleTableService extends AbstractTableService {
                          "AND DATA_TYPE = 'NUMBER' " +
                          "AND DATA_SCALE >= ? " +
                          "ORDER BY TABLE_NAME, COLUMN_ID";
-                         
+            
+            watch.stop();
+            watch.start("Oracle金额列查询执行SQL");     
             log.info("批量查询金额列，模式: {}, 最小小数位数: {}, SQL: {}", schema, minDecimalDigits, sql);
             
             // 使用Map来存储结果
@@ -72,10 +96,14 @@ public class OracleTableService extends AbstractTableService {
                 resultMap.computeIfAbsent(tableName, k -> new ArrayList<>()).add(columnName);
             }, schema, minDecimalDigits);
             
-            log.info("批量查询金额列完成，共查询到 {} 个表的金额列信息", resultMap.size());
+            watch.stop();
+            log.info("Oracle金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：\n{}", 
+                resultMap.size(), watch.prettyPrint());
             return resultMap;
         } catch (Exception e) {
-            log.error("批量查询金额列时发生错误: {}", e.getMessage(), e);
+            watch.stop();
+            log.error("Oracle金额列批量查询时发生错误: {}, 耗时统计：\n{}", 
+                e.getMessage(), watch.prettyPrint(), e);
             return super.getDecimalColumnsForTables(jdbcTemplate, schema, tables, minDecimalDigits);
         }
     }

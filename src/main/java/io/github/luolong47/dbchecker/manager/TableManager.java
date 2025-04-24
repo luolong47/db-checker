@@ -1,6 +1,7 @@
 package io.github.luolong47.dbchecker.manager;
 
 import cn.hutool.core.collection.ListUtil;
+import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.util.StrUtil;
 import io.github.luolong47.dbchecker.config.Dbconfig;
 import io.github.luolong47.dbchecker.entity.*;
@@ -57,6 +58,18 @@ public class TableManager {
     
     @Autowired
     private ExecutorService csvExportExecutor;
+
+    // 存储表处理的StopWatch对象
+    private Map<String, StopWatch> tableStopWatches = new ConcurrentHashMap<>();
+    
+    // 存储数据库查询的StopWatch对象：表名-数据库名->StopWatch
+    private Map<String, Map<String, StopWatch>> dbQueryStopWatches = new ConcurrentHashMap<>();
+    
+    // 存储CSV导出的StopWatch对象
+    private Map<String, StopWatch> csvExportStopWatches = new ConcurrentHashMap<>();
+    
+    // 全局表处理的StopWatch对象
+    private StopWatch globalTableWatch;
 
     @PostConstruct
     public void init() {
@@ -353,9 +366,9 @@ public class TableManager {
             if (tableInfo != null) {
                 tableInfo.setFormula(formula);
                 formulaCount[0]++;
-                log.debug("表 [{}] 设置公式: {}", tableName, formula.getDesc());
+                log.debug("表[{}]设置公式: {}", tableName, formula.getDesc());
             } else {
-                log.warn("表 [{}] 在tableInfoMap中不存在，但在tb2formula中存在", tableName);
+                log.warn("表[{}]在tableInfoMap中不存在，但在tb2formula中存在", tableName);
             }
         });
         log.info("公式信息设置完成，共设置 {} 个表的公式", formulaCount[0]);
@@ -366,7 +379,7 @@ public class TableManager {
             if (tableInfo != null) {
                 tableInfo.setSumCols(sumCols);
             } else {
-                log.warn("表 [{}] 在tableInfoMap中不存在，但在tb2sumCols中存在", tableName);
+                log.warn("表[{}]在tableInfoMap中不存在，但在tb2sumCols中存在", tableName);
             }
         });
 
@@ -375,6 +388,13 @@ public class TableManager {
         // 获取总表数量
         int totalTables = tb2dbs.size();
         log.info("共需处理 {} 张表的数据检查", totalTables);
+
+        // 初始化断点续跑状态管理器的表列表
+        resumeStateManager.initTableLists(tb2dbs.keySet(), totalTables);
+
+        // 创建全局的StopWatch来记录所有表处理的总时间
+        globalTableWatch = new StopWatch("全部表处理");
+        globalTableWatch.start("所有表处理任务开始");
 
         // 初始化CSV导出
         csvExportManager.initCsvExport(totalTables);
@@ -385,19 +405,27 @@ public class TableManager {
         tb2dbs.forEach((tableName, dbList) -> {
             // 检查表是否已经在断点续跑中完成处理
             if (resumeStateManager.isTableCompleted(tableName)) {
-                log.info("表 [{}] 已在之前的运行中完成处理，跳过", tableName);
+                log.info("表[{}]已在之前的运行中完成处理，跳过", tableName);
                 return;
             }
 
             List<String> sumCols = tb2sumCols.get(tableName);
             if (sumCols == null || sumCols.isEmpty()) {
-                log.info("表 [{}] 没有需要求和的列，标记为已完成并跳过", tableName);
+                log.info("表[{}]没有需要求和的列，标记为已完成并跳过", tableName);
                 resumeStateManager.markTableCompleted(tableName, totalTables);
                 return;
             }
 
+            // 标记表为进行中状态
+            resumeStateManager.markTableProcessing(tableName);
+
             // 异步处理每个表 - 使用表处理专用线程池
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                // 为每个表创建一个StopWatch并保存到Map中
+                StopWatch tableWatch = new StopWatch("表[" + tableName + "]处理");
+                tableStopWatches.put(tableName, tableWatch);
+                tableWatch.start("表[" + tableName + "]处理开始");
+                
                 try {
                     TableInfo tableInfo = tableInfoMap.get(tableName);
                     Map<String, Map<String, BigDecimal>> sumResult = new ConcurrentHashMap<>();
@@ -416,7 +444,7 @@ public class TableManager {
                         String actualDb = db;
                         if ("ora".equals(db) && slaveQueryTbs.contains(tableName)) {
                             actualDb = "ora-slave";
-                            log.info("表 [{}] 将从从节点 [{}] 查询", tableName, actualDb);
+                            log.info("表[{}]将从从节点[{}]查询", tableName, actualDb);
                         }
 
                         final String finalDb = db; // 原始数据库名，用于结果存储
@@ -424,6 +452,15 @@ public class TableManager {
 
                         // 使用数据库查询专用线程池处理查询任务
                         CompletableFuture<Void> dbFuture = CompletableFuture.runAsync(() -> {
+                            // 为每个数据库查询创建一个StopWatch并保存到Map中
+                            String queryKey = tableName + "-" + finalActualDb;
+                            Map<String, StopWatch> dbWatches = dbQueryStopWatches.computeIfAbsent(
+                                tableName, k -> new ConcurrentHashMap<>());
+                            StopWatch sqlWatch = new StopWatch("表[" + tableName + "]-数据库[" + finalActualDb + "]查询");
+                            dbWatches.put(finalActualDb, sqlWatch);
+                            
+                            sqlWatch.start("表[" + tableName + "]-数据库[" + finalActualDb + "]构建SQL");
+                            
                             try {
                                 JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(finalActualDb);
 
@@ -434,7 +471,7 @@ public class TableManager {
                                 String sqlHint = tb2hint.get(tableName);
                                 if (StrUtil.isNotEmpty(sqlHint)) {
                                     sqlBuilder.append(sqlHint).append(" ");
-                                    log.debug("为表 [{}] 添加SQL提示: {}", tableName, sqlHint);
+                                    log.debug("为表[{}]添加SQL提示: {}", tableName, sqlHint);
                                 }
 
                                 boolean hasCountCol = false;
@@ -482,6 +519,10 @@ public class TableManager {
                                 sqlBuilder.append(" FROM ").append(tableName);
 
                                 String sql = sqlBuilder.toString();
+                                sqlWatch.stop();
+                                log.debug("表[{}]-数据库[{}]的SQL构建完成，耗时: {}ms", tableName, finalActualDb, sqlWatch.getLastTaskTimeMillis());
+                                
+                                sqlWatch.start("表[" + tableName + "]-数据库[" + finalActualDb + "]执行SQL");
                                 log.debug("执行合并统计SQL: {}, 数据库: {} (实际查询: {})", sql, finalDb, finalActualDb);
 
                                 // 将外部变量复制为final变量，以便lambda表达式中使用
@@ -508,13 +549,35 @@ public class TableManager {
 
                                         // 保存结果 - 注意：结果存储到原始数据库名下，而不是实际查询的数据库
                                         sumResult.get(sumCol).put(finalDb, value);
-                                        log.debug("表 [{}] 列 [{}] 在数据库 [{}] 的求和结果: {} (实际查询: {})",
+                                        log.debug("表[{}]列[{}]在数据库[{}]的求和结果: {} (实际查询: {})",
                                             tableName, sumCol, finalDb, value, finalActualDb);
                                     }
                                 });
+                                sqlWatch.stop();
+                                
+                                // 从Map中获取StopWatch对象
+                                StopWatch currentWatch = dbQueryStopWatches
+                                    .getOrDefault(tableName, new ConcurrentHashMap<>())
+                                    .getOrDefault(finalActualDb, sqlWatch);
+                                    
+                                // 记录表在当前数据库的处理时间
+                                long dbProcessTime = currentWatch.getLastTaskTimeMillis();
+                                resumeStateManager.recordTableDbTime(tableName, finalActualDb, dbProcessTime);
+                                
+                                log.info("表[{}]在数据库[{}]的SQL执行完成，SQL耗时: {}ms\n{}", 
+                                    tableName, finalActualDb, dbProcessTime, currentWatch.prettyPrint());
                             } catch (Exception e) {
-                                log.error("计算表 [{}] 在数据库 [{}] 的列求和时发生错误 (实际查询: {}): {}",
-                                    tableName, finalDb, finalActualDb, e.getMessage(), e);
+                                // 从Map中获取StopWatch对象
+                                StopWatch currentWatch = dbQueryStopWatches
+                                    .getOrDefault(tableName, new ConcurrentHashMap<>())
+                                    .getOrDefault(finalActualDb, sqlWatch);
+                                
+                                if (currentWatch.isRunning()) {
+                                    currentWatch.stop();
+                                }
+                                
+                                log.error("计算表[{}]在数据库[{}]的列求和时发生错误 (实际查询: {}): {}, SQL耗时: {}ms",
+                                    tableName, finalDb, finalActualDb, e.getMessage(), currentWatch.getLastTaskTimeMillis(), e);
 
                                 // 出错时为所有列设为0
                                 for (String sumCol : sumCols) {
@@ -526,27 +589,63 @@ public class TableManager {
                         dbFutures.add(dbFuture);
                     }
 
+                    // 从Map中获取该表的StopWatch
+                    StopWatch currentTableWatch = tableStopWatches.getOrDefault(tableName, tableWatch);
+                    
+                    // 在停止前确保任务已经启动，并在后续再次启动前停止之前的任务
+                    if (currentTableWatch.isRunning()) {
+                        currentTableWatch.stop();
+                    }
+                    currentTableWatch.start("表[" + tableName + "]等待所有数据库查询完成");
+                    
                     // 等待所有数据库查询完成
                     CompletableFuture.allOf(dbFutures.toArray(new CompletableFuture[0]))
                         .exceptionally(e -> {
-                            log.error("表 [{}] 的数据库查询任务中有错误发生: {}", tableName, e.getMessage(), e);
+                            log.error("表[{}]的数据库查询任务中有错误发生: {}", tableName, e.getMessage(), e);
                             return null;
                         })
                         .join();
+                    
+                    if (currentTableWatch.isRunning()) {
+                        currentTableWatch.stop();
+                    }
 
                     // 设置结果
+                    currentTableWatch.start("表[" + tableName + "]设置统计结果");
                     tableInfo.setSumResult(sumResult);
-                    log.info("表 [{}] 的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
+                    
+                    if (currentTableWatch.isRunning()) {
+                        currentTableWatch.stop();
+                    }
+                    
+                    log.info("表[{}]的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
                 } catch (Exception e) {
-                    log.error("表 [{}] 的求和处理过程中发生错误: {}", tableName, e.getMessage(), e);
+                    log.error("表[{}]的求和处理过程中发生错误: {}", tableName, e.getMessage(), e);
+                } finally {
+                    // 获取StopWatch并确保停止
+                    StopWatch currentTableWatch = tableStopWatches.getOrDefault(tableName, tableWatch);
+                    // 确保停止当前任务
+                    if (currentTableWatch.isRunning()) {
+                        currentTableWatch.stop();
+                    }
+                    log.info("表[{}]处理完成，总耗时统计：\n{}", tableName, currentTableWatch.prettyPrint());
+                    
+                    // 处理完成后从Map中移除，避免内存泄漏
+                    tableStopWatches.remove(tableName);
+                    dbQueryStopWatches.remove(tableName);
                 }
             }, tableExecutor) // 使用表处理专用线程池
             .thenAcceptAsync(unused -> { // 使用CSV导出专用线程池
+                // 为每个CSV导出创建一个StopWatch并保存到Map中
+                StopWatch csvWatch = new StopWatch("表[" + tableName + "]CSV导出");
+                csvExportStopWatches.put(tableName, csvWatch);
+                csvWatch.start("表[" + tableName + "]生成CSV数据");
+                
                 // 将TableInfo转换为TableCsvResult并导出到CSV
                 try {
                     TableInfo tableInfo = tableInfoMap.get(tableName);
                     if (tableInfo == null || tableInfo.getSumResult() == null) {
-                        log.warn("表 [{}] 的计算结果为空，跳过CSV导出", tableName);
+                        log.warn("表[{}]的计算结果为空，跳过CSV导出", tableName);
                         return;
                     }
 
@@ -554,7 +653,7 @@ public class TableManager {
 
                     // 如果没有结果，跳过导出
                     if (results.isEmpty()) {
-                        log.warn("表 [{}] 没有有效的求和结果，跳过CSV导出", tableName);
+                        log.warn("表[{}]没有有效的求和结果，跳过CSV导出", tableName);
                         return;
                     }
 
@@ -566,9 +665,30 @@ public class TableManager {
                     
                     // 标记该表已处理完成，并保存状态
                     resumeStateManager.markTableCompleted(tableName, totalTables);
-                    log.info("表 [{}] 的处理已完成并保存状态", tableName);
+                    
+                    // 获取当前CSV的StopWatch
+                    StopWatch currentCsvWatch = csvExportStopWatches.getOrDefault(tableName, csvWatch);
+                    if (currentCsvWatch.isRunning()) {
+                        currentCsvWatch.stop();
+                    }
+                    
+                    log.info("表[{}]的CSV导出已完成并保存状态，CSV导出耗时: {}ms", 
+                        tableName, currentCsvWatch.getLastTaskTimeMillis());
+                    
+                    // 处理完成后从Map中移除，避免内存泄漏
+                    csvExportStopWatches.remove(tableName);
                 } catch (Exception e) {
-                    log.error("处理表 [{}] 的数据时发生错误: {}", tableName, e.getMessage(), e);
+                    // 获取当前CSV的StopWatch
+                    StopWatch currentCsvWatch = csvExportStopWatches.getOrDefault(tableName, csvWatch);
+                    // 确保停止计时
+                    if (currentCsvWatch.isRunning()) {
+                        currentCsvWatch.stop();
+                    }
+                    log.error("处理表[{}]的数据时发生错误，CSV处理耗时: {}ms: {}", 
+                        tableName, currentCsvWatch.getLastTaskTimeMillis(), e.getMessage(), e);
+                    
+                    // 处理完成后从Map中移除，避免内存泄漏
+                    csvExportStopWatches.remove(tableName);
                 }
             }, csvExportExecutor); // 使用CSV导出专用线程池
 
@@ -585,10 +705,18 @@ public class TableManager {
         // 关闭CSV写入器
         csvExportManager.closeWriter();
         
+        // 停止全局表处理计时
+        if (globalTableWatch != null && globalTableWatch.isRunning()) {
+            globalTableWatch.stop();
+        }
+        log.info("所有表处理完成，总耗时：\n{}", globalTableWatch != null ? globalTableWatch.prettyPrint() : "无法获取");
+        
         // 记录总结信息
         ResumeState state = resumeStateManager.getCurrentState();
-        log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表",
-                state.getTotalTables(), state.getCompletedCount());
+        log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表，进度 {}%",
+                state.getTotalTables(), 
+                state.getCompletedCount(),
+                String.format("%.2f", state.getProgressPercentage()));
                 
         // 任务全部完成后，关闭所有线程池，避免程序不退出
         shutdownExecutors();

@@ -1,16 +1,23 @@
 package io.github.luolong47.dbchecker;
 
+import cn.hutool.core.date.StopWatch;
 import cn.hutool.extra.spring.EnableSpringUtil;
 import cn.hutool.extra.spring.SpringUtil;
 import cn.hutool.json.JSONUtil;
+import io.github.luolong47.dbchecker.entity.ResumeState;
 import io.github.luolong47.dbchecker.entity.TableInfo;
 import io.github.luolong47.dbchecker.manager.DynamicDataSourceManager;
+import io.github.luolong47.dbchecker.manager.ResumeStateManager;
 import io.github.luolong47.dbchecker.manager.TableManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @SpringBootApplication
@@ -18,23 +25,51 @@ import java.util.Map;
 public class DbCheckerApplication {
 
     public static void main(String[] args) {
+        // 创建并启动全局计时器
+        StopWatch globalWatch = new StopWatch("整体程序执行");
+        globalWatch.start("程序启动");
+        
         SpringApplication.run(DbCheckerApplication.class, args);
-        // DynamicDataSourceManager dataSourceManager = SpringUtil.getBean(DynamicDataSourceManager.class);
-        // dataSourceManager.getAllDataSources().values().forEach(ds->{
-        //     if (ds instanceof com.zaxxer.hikari.HikariDataSource) {
-        //         com.zaxxer.hikari.HikariDataSource hikariDs = (com.zaxxer.hikari.HikariDataSource) ds;
-        //         log.info("连接池名称: {}", hikariDs.getPoolName());
-        //         log.info("最大连接数: {}", hikariDs.getMaximumPoolSize());
-        //         log.info("最小空闲连接: {}", hikariDs.getMinimumIdle());
-        //         log.info("连接超时时间: {}ms", hikariDs.getConnectionTimeout());
-        //         log.info("空闲连接超时时间: {}ms", hikariDs.getIdleTimeout());
-        //         log.info("连接最大生命周期: {}ms", hikariDs.getMaxLifetime());
-        //         log.info("连接泄露检测阈值: {}ms", hikariDs.getLeakDetectionThreshold());
-        //         log.info("----------------------------------------");
-        //     }
-        // });
-        TableManager tableManager = SpringUtil.getBean(TableManager.class);
-        Map<String, TableInfo> tableInfoMap = tableManager.getTableInfoMap();
+        
+        // 在启动新任务前先停止当前任务
+        globalWatch.stop();
+
+        log.info("程序执行完成，总耗时：\n{}", globalWatch.prettyPrint());
+        
+        // 输出详细的处理状态摘要
+        ResumeStateManager resumeStateManager = SpringUtil.getBean(ResumeStateManager.class);
+        ResumeState state = resumeStateManager.getCurrentState();
+        
+        log.info("\n-------- 处理状态摘要 --------");
+        log.info("总表数量: {}", state.getTotalTables());
+        log.info("已处理表数量: {}", state.getCompletedCount());
+        log.info("进行中表数量: {}", state.getProcessingCount());
+        log.info("待处理表数量: {}", state.getPendingCount());
+        
+        // 输出已处理的表及其处理时间
+        Map<String, Long> tableTimes = state.getTableProcessingTimes();
+        if (tableTimes != null && !tableTimes.isEmpty()) {
+            log.info("\n-------- 表处理时间排行（前10） --------");
+            List<Map.Entry<String, Long>> sortedEntries = new ArrayList<>(tableTimes.entrySet());
+            sortedEntries.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
+            
+            int count = 0;
+            for (Map.Entry<String, Long> entry : sortedEntries) {
+                if (count++ >= 10) break;
+                log.info("表[{}]: {}ms", entry.getKey(), entry.getValue());
+                
+                // 显示该表在各数据库的处理时间
+                Map<String, Long> dbTimes = state.getTableDbProcessingTimes().get(entry.getKey());
+                if (dbTimes != null && !dbTimes.isEmpty()) {
+                    String dbTimeStr = dbTimes.entrySet().stream()
+                        .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                        .map(e -> String.format("%s: %dms", e.getKey(), e.getValue()))
+                        .collect(Collectors.joining(", "));
+                    log.info("  └─ 数据库处理时间: {}", dbTimeStr);
+                }
+            }
+        }
+
         log.info("END");
     }
 }
