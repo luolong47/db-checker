@@ -197,9 +197,9 @@ spring:
 # 日志配置
 logging:
   level:
-    root: error
+    root: info
     org.springframework.jdbc.core: error
-    io.github.luolong47.dbchecker: warn
+    io.github.luolong47.dbchecker: info
     io.github.luolong47.dbchecker.DbCheckerApplication: debug
     org.springframework.jdbc.core.JdbcTemplate: warn
     com.zaxxer.hikari: error
@@ -222,16 +222,9 @@ db:
     schemas: PUBLIC,RLCMS,BSCOPY
     # 要包含的表名列表，使用逗号分隔（必填项）
     tables: PRODUCTS,ORDERS,USERS,CUSTOMERS,EMPLOYEES,SALES,INVENTORY,SUPPLIERS,CATEGORY,PAYMENTS,SPECIAL_TABLE@OTHER_SCHEMA,FORMULA1_TRUE,FORMULA1_FALSE,FORMULA1_NA,FORMULA2_TRUE,FORMULA2_FALSE,FORMULA2_NA,FORMULA3_TRUE,FORMULA3_FALSE,FORMULA3_NA,FORMULA4_TRUE,FORMULA4_FALSE,FORMULA4_NA,FORMULA5_TRUE,FORMULA5_FALSE,FORMULA5_NA,FORMULA6_TRUE,FORMULA6_FALSE,FORMULA6_NA
-    # 运行模式配置
-  run:
-    # 运行模式：RESUME(断点续跑，默认)、FULL(全量重跑)、DB(指定数据库重跑)
-    mode: FULL
   resume:
     # 断点续跑状态文件路径
     file: ./export/resume_state.json
-  # 需要重跑的数据库列表，仅在mode=DB时生效，使用逗号分隔
-  rerun:
-    databases:
   where:
     ora:
       ORDERS: "id in ( 1, 2 )"

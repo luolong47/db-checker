@@ -30,7 +30,7 @@ public class DbCheckerApplication {
         // 在启动新任务前先停止当前任务
         globalWatch.stop();
 
-        log.info("程序执行完成，总耗时：\n{}", globalWatch.prettyPrint());
+        log.info("程序执行完成，总耗时:{}s", globalWatch.getTotalTimeSeconds());
         
         // 输出详细的处理状态摘要
         ResumeStateManager resumeStateManager = SpringUtil.getBean(ResumeStateManager.class);

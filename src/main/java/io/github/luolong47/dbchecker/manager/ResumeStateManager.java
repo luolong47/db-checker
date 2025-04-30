@@ -55,62 +55,22 @@ public class ResumeStateManager {
 
     /**
      * 初始化状态管理器
-     * 
-     * @return 如果是断点续跑模式，且成功加载了状态，则返回true；否则返回false
      */
-    public boolean init() {
-        try {
-            // 获取状态文件名
-            String stateFileName = Optional.ofNullable(dbconfig.getResume())
+    public void init() {
+        // 获取状态文件名
+        String stateFileName = Optional.ofNullable(dbconfig.getResume())
                 .map(Dbconfig.Resume::getFile)
                 .orElse("resume_state.json");
-                
-            // 创建File对象
-            stateFile = new File(stateFileName);
-            FileUtil.mkParentDirs(stateFile);
 
-            // 检查运行模式
-            String runMode = Optional.ofNullable(dbconfig.getRun())
-                .map(Dbconfig.Run::getMode)
-                .orElse("FULL");
+        // 创建File对象
+        stateFile = new File(stateFileName);
+        FileUtil.mkParentDirs(stateFile);
 
-            // 如果是全量重跑模式，删除状态文件并初始化新状态
-            if ("FULL".equalsIgnoreCase(runMode)) {
-                FileUtil.del(stateFile);
-                currentState = new ResumeState();
-                currentState.setTimestamp(System.currentTimeMillis());
-                log.info("全量重跑模式，初始化新的状态");
-                return false;
-            }
-
-            // 如果是指定数据库重跑模式，也重新初始化状态
-            if ("DB".equalsIgnoreCase(runMode)) {
-                FileUtil.del(stateFile);
-                currentState = new ResumeState();
-                currentState.setTimestamp(System.currentTimeMillis());
-                log.info("指定数据库重跑模式，初始化新的状态");
-                return false;
-            }
-
-            // 尝试加载状态文件
-            if (loadState()) {
-                log.info("断点续跑模式，成功加载状态文件，已完成 {} 个表的处理，进度 {}%",
-                        currentState.getCompletedCount(), 
-                        String.format("%.2f", currentState.getProgressPercentage()));
-                return true;
-            } else {
-                // 加载失败，初始化新状态
-                currentState = new ResumeState();
-                currentState.setTimestamp(System.currentTimeMillis());
-                log.info("断点续跑模式，但未找到有效的状态文件，将创建新状态");
-                return false;
-            }
-        } catch (Exception e) {
-            log.error("初始化状态管理器时发生错误: {}", e.getMessage(), e);
-            currentState = new ResumeState();
-            currentState.setTimestamp(System.currentTimeMillis());
-            return false;
-        }
+        // 如果是全量重跑模式，删除状态文件并初始化新状态
+        FileUtil.del(stateFile);
+        currentState = new ResumeState();
+        currentState.setTimestamp(System.currentTimeMillis());
+        log.info("初始化JSON状态文件");
     }
 
     /**
@@ -437,7 +397,7 @@ public class ResumeStateManager {
                 
                 FileUtil.writeUtf8String(jsonStr, stateFile);
                 
-                log.info("已异步保存状态到文件: {}", stateFile.getAbsolutePath());
+                log.debug("已异步保存状态到文件: {}", stateFile.getAbsolutePath());
             } catch (Exception e) {
                 log.error("保存状态文件失败: {}", e.getMessage(), e);
             } finally {

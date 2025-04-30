@@ -13,9 +13,7 @@ import java.util.Map;
 public class Dbconfig {
     private Include include = new Include();
     private Export export = new Export();
-    private Run run = new Run();
     private Resume resume = new Resume();
-    private Rerun rerun = new Rerun();
     private Formula formula = new Formula();
     private SlaveQuery slaveQuery = new SlaveQuery();
     private Sum sum = new Sum();
@@ -54,18 +52,8 @@ public class Dbconfig {
     }
 
     @Data
-    public static class Run {
-        private String mode = "RESUME";
-    }
-
-    @Data
     public static class Resume {
         private String file = "./export/resume_state.json";
-    }
-
-    @Data
-    public static class Rerun {
-        private String databases;
     }
 
     @Data

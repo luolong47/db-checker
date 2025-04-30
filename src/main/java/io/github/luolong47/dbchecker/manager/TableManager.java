@@ -97,8 +97,7 @@ public class TableManager {
             .orElse(Collections.emptyList());
 
         // 初始化断点续跑状态管理器
-        boolean isResumeMode = resumeStateManager.init();
-        log.info("断点续跑状态管理器初始化完成，是否断点续跑模式: {}", isResumeMode);
+        resumeStateManager.init();
 
         // 初始化从节点查询表列表
         initSlaveQueryTbs();
@@ -566,8 +565,8 @@ public class TableManager {
                                 long dbProcessTime = currentWatch.getLastTaskTimeMillis();
                                 resumeStateManager.recordTableDbTime(tableName, finalActualDb, dbProcessTime);
                                 
-                                log.info("表[{}]在数据库[{}]的SQL执行完成，SQL耗时: {}ms\n{}", 
-                                    tableName, finalActualDb, dbProcessTime, currentWatch.prettyPrint());
+                                log.info("表[{}]在数据库[{}]的SQL执行完成，SQL耗时: {}ms",
+                                    tableName, finalActualDb, dbProcessTime);
                             } catch (Exception e) {
                                 // 从Map中获取StopWatch对象
                                 StopWatch currentWatch = dbQueryStopWatches
@@ -630,7 +629,7 @@ public class TableManager {
                     if (currentTableWatch.isRunning()) {
                         currentTableWatch.stop();
                     }
-                    log.info("表[{}]处理完成，总耗时统计：\n{}", tableName, currentTableWatch.prettyPrint());
+                    log.info("表[{}]处理完成，总耗时统计：{}ms", tableName, currentTableWatch.getTotalTimeMillis());
                     
                     // 处理完成后从Map中移除，避免内存泄漏
                     tableStopWatches.remove(tableName);
@@ -714,7 +713,7 @@ public class TableManager {
         if (globalTableWatch != null && globalTableWatch.isRunning()) {
             globalTableWatch.stop();
         }
-        log.info("所有表处理完成，总耗时：\n{}", globalTableWatch != null ? globalTableWatch.prettyPrint() : "无法获取");
+        log.info("所有表处理完成，总耗时：{}s", globalTableWatch != null ? globalTableWatch.getTotalTimeSeconds() : "无法获取");
         
         // 记录总结信息
         ResumeState state = resumeStateManager.getCurrentState();

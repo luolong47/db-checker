@@ -45,7 +45,7 @@ public class GaussDBTableService extends AbstractTableService {
         });
         
         watch.stop();
-        log.info("GaussDB表信息查询执行完成，耗时统计：\n{}", watch.prettyPrint());
+        log.info("GaussDB表信息查询执行完成，耗时统计：{}ms", watch.getTotalTimeMillis());
         
         return result;
     }
@@ -94,13 +94,13 @@ public class GaussDBTableService extends AbstractTableService {
             }, schema, minDecimalDigits);
             
             watch.stop();
-            log.info("GaussDB金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：\n{}", 
-                resultMap.size(), watch.prettyPrint());
+            log.info("GaussDB金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：{}ms",
+                resultMap.size(), watch.getTotalTimeMillis());
             return resultMap;
         } catch (Exception e) {
             watch.stop();
-            log.error("GaussDB金额列批量查询时发生错误: {}, 耗时统计：\n{}", 
-                e.getMessage(), watch.prettyPrint(), e);
+            log.error("GaussDB金额列批量查询时发生错误: {}, 耗时统计：{}ms",
+                e.getMessage(), watch.getTotalTimeMillis(), e);
             return super.getDecimalColumnsForTables(jdbcTemplate, schema, tables, minDecimalDigits);
         }
     }
