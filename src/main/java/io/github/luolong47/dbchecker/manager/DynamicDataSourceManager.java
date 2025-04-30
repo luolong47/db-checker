@@ -74,7 +74,7 @@ public class DynamicDataSourceManager {
                 dataSources.put(name, dataSource);
                 log.info("已注册数据源: [{}]", name);
             } else {
-                log.info("数据源 [{}] 已禁用，跳过注册", name);
+                log.warn("数据源 [{}] 已禁用，跳过注册", name);
             }
         } else {
             // 非HikariDataSource直接注册

@@ -71,7 +71,7 @@ public class CsvExportManager {
             csvFile = new File(exportDir, filePath);
             FileUtil.mkParentDirs(csvFile);
 
-            log.info("初始化CSV导出，文件路径: {}", csvFile);
+            log.info("初始化CSV导出，文件路径: {}", csvFile.getAbsolutePath());
 
             // 创建CSV写入器 - 配置为支持Bean写入，指定头部别名
             CsvWriteConfig config = new CsvWriteConfig();
@@ -153,7 +153,7 @@ public class CsvExportManager {
      */
     public void closeWriter() {
         IoUtil.close(csvWriter);
-        log.info("CSV写入器已关闭，文件保存在: {}", csvFile);
+        log.info("CSV写入器已关闭，文件保存在: {}", csvFile.getAbsolutePath());
     }
 
     /**

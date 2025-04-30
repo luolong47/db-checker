@@ -35,7 +35,7 @@ public class GaussDBTableService extends AbstractTableService {
         
         watch.stop();
         watch.start("GaussDB执行表查询SQL");
-        log.info("执行SQL: {}", sql);
+        log.debug("执行SQL: {}", sql);
         
         List<TableEnt> result = jdbcTemplate.query(sql, (rs, rowNum) -> {
             TableEnt tableEnt = new TableEnt();
@@ -45,7 +45,7 @@ public class GaussDBTableService extends AbstractTableService {
         });
         
         watch.stop();
-        log.info("GaussDB表信息查询执行完成，耗时统计：{}ms", watch.getTotalTimeMillis());
+        log.debug("GaussDB表信息查询执行完成，耗时统计：{}ms", watch.getTotalTimeMillis());
         
         return result;
     }
@@ -81,7 +81,7 @@ public class GaussDBTableService extends AbstractTableService {
             
             watch.stop();
             watch.start("GaussDB金额列查询执行SQL");     
-            log.info("批量查询金额列，模式: {}, 最小小数位数: {}, SQL: {}", schema, minDecimalDigits, sql);
+            log.debug("批量查询金额列，模式: {}, 最小小数位数: {}, SQL: {}", schema, minDecimalDigits, sql);
             
             // 使用Map来存储结果
             Map<String, List<String>> resultMap = new HashMap<>();
@@ -94,7 +94,7 @@ public class GaussDBTableService extends AbstractTableService {
             }, schema, minDecimalDigits);
             
             watch.stop();
-            log.info("GaussDB金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：{}ms",
+            log.debug("GaussDB金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：{}ms",
                 resultMap.size(), watch.getTotalTimeMillis());
             return resultMap;
         } catch (Exception e) {

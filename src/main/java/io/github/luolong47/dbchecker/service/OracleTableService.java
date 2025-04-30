@@ -37,7 +37,7 @@ public class OracleTableService extends AbstractTableService {
         
         watch.stop();
         watch.start("Oracle执行表查询SQL");
-        log.info("执行SQL: {}", sql);
+        log.debug("执行SQL: {}", sql);
         
         List<TableEnt> result = jdbcTemplate.query(sql, (rs, rowNum) -> {
             TableEnt tableEnt = new TableEnt();
@@ -60,7 +60,7 @@ public class OracleTableService extends AbstractTableService {
         
         if (tables == null || tables.isEmpty()) {
             watch.stop();
-            log.info("表列表为空，直接返回空结果");
+            log.warn("表列表为空，直接返回空结果");
             return Collections.emptyMap();
         }
         
@@ -85,7 +85,7 @@ public class OracleTableService extends AbstractTableService {
             
             watch.stop();
             watch.start("Oracle金额列查询执行SQL");     
-            log.info("批量查询金额列，模式: {}, 最小小数位数: {}, SQL: {}", schema, minDecimalDigits, sql);
+            log.debug("批量查询金额列，模式: {}, 最小小数位数: {}, SQL: {}", schema, minDecimalDigits, sql);
             
             // 使用Map来存储结果
             Map<String, List<String>> resultMap = new HashMap<>();
@@ -98,7 +98,7 @@ public class OracleTableService extends AbstractTableService {
             }, schema, minDecimalDigits);
             
             watch.stop();
-            log.info("Oracle金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：{}ms",
+            log.debug("Oracle金额列批量查询完成，共查询到 {} 个表的金额列信息，耗时统计：{}ms",
                 resultMap.size(), watch.getTotalTimeMillis());
             return resultMap;
         } catch (Exception e) {

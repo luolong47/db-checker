@@ -163,7 +163,7 @@ public class TableManager {
                             log.debug("表 [{}] 设置SQL提示: {}", tableName, sqlHint);
                         });
 
-                        log.info("类型 [{}] 的 {} 个表设置SQL提示: {}",
+                        log.debug("类型 [{}] 的 {} 个表设置SQL提示: {}",
                             type, tables.size(), sqlHint);
                     } else {
                         log.warn("类型 [{}] 没有对应的SQL提示配置", type);
@@ -210,7 +210,7 @@ public class TableManager {
             // 添加该数据库的 WHERE 条件
             dbToWhereMap.put(db, whereStr);
 
-            log.info("设置表 [{}] 在数据库 [{}] 的 WHERE 条件: {}", tableNameUpper, db, whereStr);
+            log.debug("设置表 [{}] 在数据库 [{}] 的 WHERE 条件: {}", tableNameUpper, db, whereStr);
         }));
 
         log.info("WHERE 条件映射初始化完成，共设置 {} 个表的条件", tb2where.size());
@@ -264,7 +264,7 @@ public class TableManager {
                     // 不要直接替换现有的列表，而是将金额列添加到已有列表中
                     List<String> existingCols = tb2sumCols.computeIfAbsent(tableName, k -> new CopyOnWriteArrayList<>());
                     existingCols.addAll(columns);
-                    log.info("表 [{}] 的金额列: {}", tableName, String.join(",", columns));
+                    log.debug("表 [{}] 的金额列: {}", tableName, String.join(",", columns));
                 }
             });
 
@@ -446,7 +446,7 @@ public class TableManager {
                         String actualDb = db;
                         if ("ora".equals(db) && slaveQueryTbs.contains(tableName)) {
                             actualDb = "ora-slave";
-                            log.info("表[{}]将从从节点[{}]查询", tableName, actualDb);
+                            log.debug("表[{}]将从从节点[{}]查询", tableName, actualDb);
                         }
 
                         final String finalDb = db; // 原始数据库名，用于结果存储
@@ -565,7 +565,7 @@ public class TableManager {
                                 long dbProcessTime = currentWatch.getLastTaskTimeMillis();
                                 resumeStateManager.recordTableDbTime(tableName, finalActualDb, dbProcessTime);
                                 
-                                log.info("表[{}]在数据库[{}]的SQL执行完成，SQL耗时: {}ms",
+                                log.debug("表[{}]在数据库[{}]的SQL执行完成，SQL耗时: {}ms",
                                     tableName, finalActualDb, dbProcessTime);
                             } catch (Exception e) {
                                 // 从Map中获取StopWatch对象
@@ -619,7 +619,7 @@ public class TableManager {
                         currentTableWatch.stop();
                     }
                     
-                    log.info("表[{}]的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
+                    log.debug("表[{}]的求和计算完成, 共计算 {} 列", tableName, sumCols.size());
                 } catch (Exception e) {
                     log.error("表[{}]的求和处理过程中发生错误: {}", tableName, e.getMessage(), e);
                 } finally {
@@ -676,7 +676,7 @@ public class TableManager {
                     // 保存表信息数据
                     resumeStateManager.saveState(tableInfoMap);
                     
-                    log.info("表[{}]的CSV导出已完成并保存状态，CSV导出耗时: {}ms", 
+                    log.debug("表[{}]的CSV导出已完成并保存状态，CSV导出耗时: {}ms",
                         tableName, currentCsvWatch.getLastTaskTimeMillis());
                     
                     // 处理完成后从Map中移除，避免内存泄漏
@@ -717,10 +717,9 @@ public class TableManager {
         
         // 记录总结信息
         ResumeState state = resumeStateManager.getCurrentState();
-        log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表，进度 {}%",
+        log.info("所有任务处理完成。共处理 {} 张表，完成 {} 张表",
                 state.getTotalTables(), 
-                state.getCompletedCount(),
-                String.format("%.2f", state.getProgressPercentage()));
+                state.getCompletedCount());
                 
         // 任务全部完成后，关闭所有线程池，避免程序不退出
         shutdownExecutors();
@@ -735,7 +734,7 @@ public class TableManager {
         try {
             // 保存最终状态并关闭状态管理器
             try {
-                log.info("保存最终状态并关闭状态管理器...");
+                log.debug("保存最终状态并关闭状态管理器...");
                 // 确保最终状态已保存，传入tableInfoMap
                 resumeStateManager.saveState(tableInfoMap);
                 // 等待一段时间确保状态保存完成
@@ -748,17 +747,17 @@ public class TableManager {
 
             // 直接关闭线程池
             if (tableExecutor != null) {
-                log.info("关闭表处理线程池...");
+                log.debug("关闭表处理线程池...");
                 tableExecutor.shutdown();
             }
 
             if (dbQueryExecutor != null) {
-                log.info("关闭数据库查询线程池...");
+                log.debug("关闭数据库查询线程池...");
                 dbQueryExecutor.shutdown();
             }
 
             if (csvExportExecutor != null) {
-                log.info("关闭CSV导出线程池...");
+                log.debug("关闭CSV导出线程池...");
                 csvExportExecutor.shutdown();
             }
 
@@ -808,7 +807,7 @@ public class TableManager {
                     tableServices.put(db, new TableService.DisabledTableService(db));
                 } else {
                     tableServices.put(db, TableService.getTableService(db));
-                    log.info("为数据源 [{}] 创建TableService成功", db);
+                    log.debug("为数据源 [{}] 创建TableService成功", db);
                 }
             } catch (Exception e) {
                 log.error("为数据源 [{}] 创建TableService失败: {}", db, e.getMessage());

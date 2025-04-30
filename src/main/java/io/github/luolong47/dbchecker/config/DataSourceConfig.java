@@ -151,7 +151,7 @@ public class DataSourceConfig {
         
         // 如果数据源已禁用，返回禁用数据源实例
         if (!isEnabled) {
-            log.info("数据源 [{}] 已禁用，创建虚拟数据源", name);
+            log.warn("数据源 [{}] 已禁用，创建虚拟数据源", name);
             return new DisabledDataSource(name);
         }
         
