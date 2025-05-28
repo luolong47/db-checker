@@ -43,7 +43,7 @@ public class Dbconfig {
     @Data
     public static class Include {
         private String tables;
-        private String schemas;
+        private Map<String, String> schemas;
     }
 
     @Data

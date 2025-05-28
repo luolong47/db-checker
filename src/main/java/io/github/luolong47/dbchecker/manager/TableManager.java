@@ -88,8 +88,14 @@ public class TableManager {
                 .collect(Collectors.toList()))
             .orElse(Collections.emptyList());
 
-        // 从db.include.schemas配置中初始化schema列表
-        schemas = Optional.ofNullable(dbconfig.getInclude().getSchemas())
+        // schemas初始化逻辑修改，支持Map结构
+        Map<String, String> schemasMap = dbconfig.getInclude().getSchemas();
+        String dbKey = "default"; // 可根据实际dbName动态赋值
+        String schemasStr = null;
+        if (schemasMap != null) {
+            schemasStr = schemasMap.getOrDefault(dbKey, schemasMap.get("default"));
+        }
+        schemas = Optional.ofNullable(schemasStr)
             .filter(s -> !s.trim().isEmpty())
             .map(s -> Arrays.stream(s.split(","))
                 .map(String::trim)
@@ -833,6 +839,10 @@ public class TableManager {
                 try {
                     JdbcTemplate jdbcTemplate = dynamicJdbcTemplateManager.getJdbcTemplate(db);
                     TableService tableService = tableServices.get(db);
+                    // 根据dbName获取schemas字符串并转为List
+                    Map<String, String> schemasMap = dbconfig.getInclude().getSchemas();
+                    String schemasStr = schemasMap != null ? schemasMap.getOrDefault(db, schemasMap.get("default")) : null;
+                    List<String> schemas = schemasStr == null ? Collections.emptyList() : Arrays.stream(schemasStr.split(",")).map(String::trim).collect(Collectors.toList());
                     List<TableEnt> tables = tableService.getTables(jdbcTemplate, schemas, this.tables);
                     log.info("数据库 [{}] 中查询到 {} 个表", db, tables.size());
                     return tables;
